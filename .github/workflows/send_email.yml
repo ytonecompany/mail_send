@@ -6,7 +6,7 @@ on:
   workflow_dispatch:  # 수동 실행 옵션
 
 jobs:
-  send_email 
+  send_email:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -26,7 +26,6 @@ jobs:
         run: python mail.py
         env:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
 
       - name: Check GOOGLE_SHEETS_CREDENTIALS
         run: |
