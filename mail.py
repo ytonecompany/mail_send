@@ -186,12 +186,132 @@ def save_current_data(data):
     except Exception as e:
         log_message(f"현재 데이터 저장 실패: {str(e)}")
 
+def load_previous_data_from_sheet():
+    """Google 스프레드시트에서 이전에 전송한 데이터 로드"""
+    log_message("Google 스프레드시트에서 이전 데이터 로드 시작")
+    
+    try:
+        # JSON 파일 생성 (환경 변수에서 읽기)
+        json_content = os.environ.get('GOOGLE_SHEETS_CREDENTIALS')
+        if not json_content:
+            raise ValueError("환경 변수 'GOOGLE_SHEETS_CREDENTIALS'가 설정되지 않았습니다.")
+        
+        # 임시 JSON 파일 생성
+        creds_file = 'service_account.json'
+        with open(creds_file, 'w') as f:
+            f.write(json_content)
+        
+        # Google Sheets API 설정
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_name(creds_file, scope)
+        client = gspread.authorize(creds)
+
+        # 스프레드시트 열기
+        spreadsheet = client.open_by_key("1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg")
+        
+        # 이전 데이터 시트가 있는지 확인
+        try:
+            previous_data_sheet = spreadsheet.worksheet("PreviousData")
+            records = previous_data_sheet.get_all_records()
+            
+            # 데이터 변환 (필요하다면)
+            previous_data = []
+            for record in records:
+                # 스프레드시트에서는 행 단위로 데이터를 저장하므로
+                # 각 행은 이전에 전송된 항목 하나를 나타냄
+                previous_data.append({
+                    "title": record.get("title", ""),
+                    "sheet_name": record.get("sheet_name", "")
+                })
+            
+            log_message(f"스프레드시트에서 {len(previous_data)}개의 이전 데이터 로드 성공")
+            return previous_data
+            
+        except WorksheetNotFound:
+            # 시트가 없으면 새로 생성
+            log_message("PreviousData 시트가 없어 새로 생성합니다.")
+            spreadsheet.add_worksheet(title="PreviousData", rows=1000, cols=10)
+            # 헤더 설정
+            previous_data_sheet = spreadsheet.worksheet("PreviousData")
+            previous_data_sheet.append_row(["title", "sheet_name", "date_sent"])
+            return []
+            
+    except Exception as e:
+        log_message(f"스프레드시트에서 이전 데이터 로드 실패: {str(e)}")
+        # 로컬 파일로 폴백
+        return load_previous_data()
+
+def save_current_data_to_sheet(data):
+    """현재 데이터를 Google 스프레드시트에 저장"""
+    log_message("현재 데이터를 Google 스프레드시트에 저장 시작")
+    
+    try:
+        # JSON 파일 생성 (환경 변수에서 읽기)
+        json_content = os.environ.get('GOOGLE_SHEETS_CREDENTIALS')
+        if not json_content:
+            raise ValueError("환경 변수 'GOOGLE_SHEETS_CREDENTIALS'가 설정되지 않았습니다.")
+        
+        # 임시 JSON 파일 생성
+        creds_file = 'service_account.json'
+        with open(creds_file, 'w') as f:
+            f.write(json_content)
+        
+        # Google Sheets API 설정
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_name(creds_file, scope)
+        client = gspread.authorize(creds)
+
+        # 스프레드시트 열기
+        spreadsheet = client.open_by_key("1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg")
+        
+        try:
+            previous_data_sheet = spreadsheet.worksheet("PreviousData")
+            
+            # 기존 데이터 삭제 (헤더 제외)
+            rows = previous_data_sheet.row_count
+            if rows > 1:  # 헤더 행 이후의 데이터만 삭제
+                previous_data_sheet.delete_rows(2, rows)
+            
+            # 새 데이터 추가
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            for item in data:
+                previous_data_sheet.append_row([
+                    item.get("title", ""),
+                    item.get("sheet_name", ""),
+                    timestamp
+                ])
+            
+            log_message(f"스프레드시트에 {len(data)}개의 데이터 저장 성공")
+            
+        except WorksheetNotFound:
+            # 시트가 없으면 새로 생성
+            log_message("PreviousData 시트가 없어 새로 생성합니다.")
+            previous_data_sheet = spreadsheet.add_worksheet(title="PreviousData", rows=1000, cols=10)
+            # 헤더 설정
+            previous_data_sheet.append_row(["title", "sheet_name", "date_sent"])
+            
+            # 새 데이터 추가
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            for item in data:
+                previous_data_sheet.append_row([
+                    item.get("title", ""),
+                    item.get("sheet_name", ""),
+                    timestamp
+                ])
+            
+            log_message(f"새 시트에 {len(data)}개의 데이터 저장 성공")
+            
+    except Exception as e:
+        log_message(f"스프레드시트에 데이터 저장 실패: {str(e)}")
+        # 로컬 파일로 폴백
+        save_current_data(data)
+
 def check_for_new_entries_and_notify():
     """새로운 항목 확인 및 이메일 전송"""
     log_message("새로운 항목 확인 시작")
     
-    # 이전 데이터 로드
-    previous_data = load_previous_data()
+    # 이전 데이터 로드 (Google 시트에서)
+    previous_data = load_previous_data_from_sheet()
 
     # 현재 데이터 로드
     current_data = get_spreadsheet_data()
@@ -384,7 +504,7 @@ def check_for_new_entries_and_notify():
                 log_message(f"'{title}' 이메일 전송 실패")
 
     # 현재 데이터를 저장하여 다음 실행 시 비교
-    save_current_data(current_data)
+    save_current_data_to_sheet(current_data)
     
     log_message("새로운 항목 확인 완료")
 
