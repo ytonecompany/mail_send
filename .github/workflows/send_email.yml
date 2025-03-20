@@ -6,7 +6,7 @@ on:
   workflow_dispatch:  # 수동 실행 옵션
 
 jobs:
-  send_email 
+  send_email:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
