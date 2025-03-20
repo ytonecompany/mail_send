@@ -4,3 +4,4 @@ google-api-python-client
 selenium
 webdriver-manager
 beautifulsoup4
+pandas
