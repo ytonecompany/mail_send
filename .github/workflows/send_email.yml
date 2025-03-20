@@ -27,6 +27,7 @@ jobs:
         env:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check GOOGLE_SHEETS_CREDENTIALS
         run: |
