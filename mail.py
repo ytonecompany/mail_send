@@ -69,15 +69,25 @@ def get_spreadsheet_data():
     """스프레드시트에서 데이터 가져오기"""
     log_message("스프레드시트 데이터 가져오기 시작")
     
+    # JSON 파일 생성 (환경 변수에서 읽기)
+    json_content = os.environ.get('GOOGLE_SHEETS_CREDENTIALS')
+    if not json_content:
+        raise ValueError("환경 변수 'GOOGLE_SHEETS_CREDENTIALS'가 설정되지 않았습니다.")
+    
+    # 임시 JSON 파일 생성
+    creds_file = 'service_account.json'
+    with open(creds_file, 'w') as f:
+        f.write(json_content)
+    
+    # 파일 생성 확인 로그
+    if os.path.exists(creds_file):
+        log_message(f"JSON 파일 생성 성공: {creds_file}")
+    else:
+        log_message(f"JSON 파일 생성 실패: {creds_file}")
+        raise FileNotFoundError(f"JSON 파일을 생성할 수 없습니다: {creds_file}")
+    
     # Google Sheets API 설정
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    
-    # 서비스 계정 JSON 파일 경로 설정
-    if IS_SERVER:
-        creds_file = '/home/hosting_users/ytonepd/www/naver-452205-a733573ea425.json'
-    else:
-        creds_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'naver-452205-a733573ea425.json')
-    
     creds = ServiceAccountCredentials.from_json_keyfile_name(creds_file, scope)
     client = gspread.authorize(creds)
 
