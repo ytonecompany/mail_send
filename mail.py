@@ -190,34 +190,6 @@ def check_for_new_entries_and_notify():
     """새로운 항목 확인 및 이메일 전송"""
     log_message("새로운 항목 확인 시작")
     
-    # 이전 데이터 파일이 있는지 확인하고, 없으면 저장소에서 가져오기
-    try:
-        # 먼저 저장소에서 파일 가져오기
-        if IS_GITHUB_ACTIONS:
-            try:
-                import requests
-                # GitHub API를 사용하여 previous_data.json 파일 내용 가져오기
-                repo_owner = "ytonecompany"  # 저장소 소유자
-                repo_name = "mail_send"      # 저장소 이름
-                file_path = "previous_data.json"
-                
-                url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}"
-                headers = {"Accept": "application/vnd.github.v3+json"}
-                if "GITHUB_TOKEN" in os.environ:
-                    headers["Authorization"] = f"token {os.environ['GITHUB_TOKEN']}"
-                
-                response = requests.get(url, headers=headers)
-                if response.status_code == 200:
-                    import base64
-                    content = base64.b64decode(response.json()["content"]).decode("utf-8")
-                    with open(previous_data_file, "w") as f:
-                        f.write(content)
-                    log_message("GitHub에서 이전 데이터 파일 로드 성공")
-            except Exception as e:
-                log_message(f"GitHub에서 파일 가져오기 실패: {str(e)}")
-    except:
-        pass
-    
     # 이전 데이터 로드
     previous_data = load_previous_data()
 
@@ -413,55 +385,6 @@ def check_for_new_entries_and_notify():
 
     # 현재 데이터를 저장하여 다음 실행 시 비교
     save_current_data(current_data)
-    
-    # GitHub Actions 환경에서 파일을 저장소에 커밋
-    if IS_GITHUB_ACTIONS:
-        try:
-            # 현재 시간을 포함한 커밋 메시지 생성
-            commit_message = f"Update previous_data.json - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            
-            # GitHub API를 사용하여 파일 업데이트
-            import requests
-            import base64
-            
-            repo_owner = "ytonecompany"  # 저장소 소유자
-            repo_name = "mail_send"      # 저장소 이름
-            file_path = "previous_data.json"
-            
-            # 파일 내용 읽기
-            with open(previous_data_file, "r") as f:
-                content = f.read()
-            
-            # GitHub API 호출을 위한 준비
-            url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{file_path}"
-            headers = {
-                "Accept": "application/vnd.github.v3+json",
-                "Authorization": f"token {os.environ['GITHUB_TOKEN']}"
-            }
-            
-            # 먼저 현재 파일의 SHA 가져오기
-            response = requests.get(url, headers=headers)
-            current_sha = None
-            if response.status_code == 200:
-                current_sha = response.json()["sha"]
-            
-            # 파일 업데이트
-            data = {
-                "message": commit_message,
-                "content": base64.b64encode(content.encode()).decode(),
-                "branch": "main"  # 브랜치 이름
-            }
-            
-            if current_sha:
-                data["sha"] = current_sha
-            
-            response = requests.put(url, headers=headers, json=data)
-            if response.status_code in [200, 201]:
-                log_message("이전 데이터 파일 GitHub 저장소에 업데이트 성공")
-            else:
-                log_message(f"이전 데이터 파일 GitHub 저장소에 업데이트 실패: {response.status_code} - {response.text}")
-        except Exception as e:
-            log_message(f"GitHub 저장소에 파일 업데이트 실패: {str(e)}")
     
     log_message("새로운 항목 확인 완료")
 
