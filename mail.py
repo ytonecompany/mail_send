@@ -33,8 +33,10 @@ else:
 def log_message(message):
     """로그 파일에 메시지 기록"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = f"{timestamp} - {message}"
     with open(log_file, 'a') as f:
-        f.write(f"{timestamp} - {message}\n")
+        f.write(log_entry + "\n")
+    print(log_entry)  # GitHub Actions 로그에 출력
 
 def get_spreadsheet_data():
     """스프레드시트에서 데이터 가져오기"""
