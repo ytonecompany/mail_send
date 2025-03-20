@@ -26,3 +26,12 @@ jobs:
         run: python mail.py
         env:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+
+      - name: Check GOOGLE_SHEETS_CREDENTIALS
+        run: |
+          if [ -z "$GOOGLE_SHEETS_CREDENTIALS" ]; then
+            echo "GOOGLE_SHEETS_CREDENTIALS is not set"
+            exit 1
+          else
+            echo "GOOGLE_SHEETS_CREDENTIALS is set"
+          fi
