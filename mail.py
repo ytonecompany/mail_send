@@ -418,6 +418,12 @@ def setup_google_sheets():
         with open(creds_file, 'w') as f:
             f.write(json_content)
 
+        # 파일 생성 확인 로그
+        if os.path.exists(creds_file):
+            print(f"JSON 파일 생성 성공: {creds_file}")
+        else:
+            print(f"JSON 파일 생성 실패: {creds_file}")
+
         # 이후 creds_file을 사용하여 인증
         creds = service_account.Credentials.from_service_account_file(
             creds_file,
