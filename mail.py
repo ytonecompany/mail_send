@@ -7,6 +7,24 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
 from datetime import datetime
+import os.path
+from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import re
+from bs4 import BeautifulSoup
+import requests
+import pandas as pd
+import argparse
+from gspread.exceptions import APIError, SpreadsheetNotFound, WorksheetNotFound
+import logging
 
 # 환경 확인 (서버인지 로컬인지)
 IS_SERVER = os.path.exists('/home/hosting_users/ytonepd/www')
@@ -19,16 +37,25 @@ if IS_SERVER:
     # 서버 환경
     log_file = '/home/hosting_users/ytonepd/www/mail.log'
     previous_data_file = '/home/hosting_users/ytonepd/www/previous_data.json'
+    error_log_file = '/home/hosting_users/ytonepd/www/error_log.txt'
 elif IS_GITHUB_ACTIONS:
     # GitHub Actions 환경
     log_file = os.path.join(os.getcwd(), 'mail.log')
     previous_data_file = os.path.join(os.getcwd(), 'previous_data.json')
+    error_log_file = os.path.join(os.getcwd(), 'error_log.txt')
 else:
     # 로컬 환경
     log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, 'mail.log')
     previous_data_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'previous_data.json')
+    error_log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'error_log.txt')
+
+logging.basicConfig(
+    filename=log_file,
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 def log_message(message):
     """로그 파일에 메시지 기록"""
@@ -374,6 +401,61 @@ def reset_previous_data():
     except Exception as e:
         log_message(f"이전 데이터 초기화 실패: {str(e)}")
         return False
+
+def setup_google_sheets():
+    # 필요한 모든 스코프 추가
+    scope = [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive'
+    ]
+    
+    try:
+        # 환경 변수에서 JSON 파일 내용 가져오기
+        json_content = os.environ.get('GOOGLE_SHEETS_CREDENTIALS')
+
+        # JSON 파일 생성
+        creds_file = 'service_account.json'
+        with open(creds_file, 'w') as f:
+            f.write(json_content)
+
+        # 이후 creds_file을 사용하여 인증
+        creds = service_account.Credentials.from_service_account_file(
+            creds_file,
+            scopes=scope
+        )
+        
+        # gspread 클라이언트 생성
+        gc = gspread.authorize(creds)
+        print("gspread 인증 성공")
+        
+        # 스프레드시트 열기
+        SPREADSHEET_ID = '1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg'
+        try:
+            spreadsheet = gc.open_by_key(SPREADSHEET_ID)
+            print("스프레드시트 열기 성공")
+            
+            # Naver_Ads 시트 열기
+            sheet = spreadsheet.worksheet('Boss_pdf')
+            print("Boss_pdf 시트 열기 성공")
+            
+            return sheet
+            
+        except gspread.exceptions.SpreadsheetNotFound:
+            print(f"스프레드시트를 찾을 수 없습니다. ID: {SPREADSHEET_ID}")
+            raise
+        except gspread.exceptions.WorksheetNotFound:
+            print("Boss_pdf 시트를 찾을 수 없습니다.")
+            raise
+        except gspread.exceptions.APIError as e:
+            print(f"API 오류: {str(e)}")
+            raise
+            
+    except FileNotFoundError:
+        print(f"서비스 계정 키 파일을 찾을 수 없습니다: {creds_file}")
+        raise
+    except Exception as e:
+        print(f"Google Sheets 설정 중 오류 발생: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     log_message("메일 프로그램 시작")
