@@ -5,3 +5,5 @@ selenium
 webdriver-manager
 beautifulsoup4
 pandas
+google-auth
+google-auth-oauthlib
