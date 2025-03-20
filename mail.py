@@ -403,62 +403,42 @@ def reset_previous_data():
         return False
 
 def setup_google_sheets():
-    # 필요한 모든 스코프 추가
     scope = [
         'https://www.googleapis.com/auth/spreadsheets',
         'https://www.googleapis.com/auth/drive'
     ]
     
     try:
-        # 환경 변수에서 JSON 파일 내용 가져오기
         json_content = os.environ.get('GOOGLE_SHEETS_CREDENTIALS')
-
-        # JSON 파일 생성
+        if not json_content:
+            raise ValueError("환경 변수 'GOOGLE_SHEETS_CREDENTIALS'가 설정되지 않았습니다.")
+        
         creds_file = 'service_account.json'
         with open(creds_file, 'w') as f:
             f.write(json_content)
 
-        # 파일 생성 확인 로그
         if os.path.exists(creds_file):
             print(f"JSON 파일 생성 성공: {creds_file}")
         else:
             print(f"JSON 파일 생성 실패: {creds_file}")
 
-        # 이후 creds_file을 사용하여 인증
         creds = service_account.Credentials.from_service_account_file(
             creds_file,
             scopes=scope
         )
         
-        # gspread 클라이언트 생성
         gc = gspread.authorize(creds)
         print("gspread 인증 성공")
         
-        # 스프레드시트 열기
         SPREADSHEET_ID = '1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg'
-        try:
-            spreadsheet = gc.open_by_key(SPREADSHEET_ID)
-            print("스프레드시트 열기 성공")
+        spreadsheet = gc.open_by_key(SPREADSHEET_ID)
+        print("스프레드시트 열기 성공")
+        
+        sheet = spreadsheet.worksheet('Boss_pdf')
+        print("Boss_pdf 시트 열기 성공")
+        
+        return sheet
             
-            # Naver_Ads 시트 열기
-            sheet = spreadsheet.worksheet('Boss_pdf')
-            print("Boss_pdf 시트 열기 성공")
-            
-            return sheet
-            
-        except gspread.exceptions.SpreadsheetNotFound:
-            print(f"스프레드시트를 찾을 수 없습니다. ID: {SPREADSHEET_ID}")
-            raise
-        except gspread.exceptions.WorksheetNotFound:
-            print("Boss_pdf 시트를 찾을 수 없습니다.")
-            raise
-        except gspread.exceptions.APIError as e:
-            print(f"API 오류: {str(e)}")
-            raise
-            
-    except FileNotFoundError:
-        print(f"서비스 계정 키 파일을 찾을 수 없습니다: {creds_file}")
-        raise
     except Exception as e:
         print(f"Google Sheets 설정 중 오류 발생: {str(e)}")
         raise
