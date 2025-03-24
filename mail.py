@@ -341,7 +341,6 @@ def check_for_new_entries_and_notify():
     # 새로운 데이터 감지 (제목과 시트 이름으로 비교 + 날짜 기준)
     new_entries = []
     for current_entry in current_data:
-        # 작성일 열 데이터 가져오기
         date_str = current_entry.get('date', '')
         
         # 날짜 문자열 파싱
@@ -353,33 +352,28 @@ def check_for_new_entries_and_notify():
                 elif '/' in date_str:
                     entry_date = datetime.strptime(date_str, "%Y/%m/%d")
                 else:
-                    # 다른 형식일 경우 (추가 형식이 필요하면 여기에 추가)
                     log_message(f"날짜 형식 인식 불가: {date_str}")
-                    entry_date = datetime.now()  # 기본값 설정
+                    continue  # 날짜 형식이 잘못된 경우 건너뜀
             else:
                 log_message("작성일 데이터 없음")
-                entry_date = datetime.now()  # 기본값 설정
-                
-            # 2025년 3월 14일 이후인지 확인 (날짜 수정됨)
+                continue  # 작성일 데이터가 없는 경우 건너뜀
+            
+            # 기준일자와 비교
             if entry_date < reference_date:
                 log_message(f"기준일자 이전 항목 건너뜀: {current_entry.get('title')}, 작성일: {date_str}")
                 continue
-                
-        except Exception as e:
-            log_message(f"날짜 파싱 오류: {str(e)}, 날짜: {date_str}")
-            # 날짜 파싱에 실패한 경우는 일단 포함 (필터링하지 않음)
-        
-        # 이전에 알림을 보낸 항목인지 확인
-        is_new = True
-        for prev_entry in previous_data:
-            if (current_entry.get('title') == prev_entry.get('title') and 
-                current_entry.get('sheet_name') == prev_entry.get('sheet_name')):
-                is_new = False
-                break
-                
-        if is_new:
-            new_entries.append(current_entry)
-            log_message(f"새 항목 감지: {current_entry.get('title')}, 작성일: {date_str}")
+            
+            # 이전에 알림을 보낸 항목인지 확인
+            is_new = True
+            for prev_entry in previous_data:
+                if (current_entry.get('title') == prev_entry.get('title') and 
+                    current_entry.get('sheet_name') == prev_entry.get('sheet_name')):
+                    is_new = False
+                    break
+            
+            if is_new:
+                new_entries.append(current_entry)
+                log_message(f"새 항목 감지: {current_entry.get('title')}, 작성일: {date_str}")
 
     log_message(f"새로운 항목 수: {len(new_entries)}")
 
