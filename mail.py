@@ -6,7 +6,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import os.path
 from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
@@ -335,8 +335,13 @@ def check_for_new_entries_and_notify():
     # 현재 데이터 로드
     current_data = get_spreadsheet_data()
     
-    # 기준 날짜 설정: 2025년 3월 14일로 수정
-    reference_date = datetime(2025, 3, 14)
+    # 기준 날짜를 어제로 설정
+    reference_date = datetime.now() - timedelta(days=1)
+
+    # 주말 체크 (토요일과 일요일)
+    if reference_date.weekday() >= 5:  # 5는 토요일, 6은 일요일
+        log_message("주말에는 이메일을 전송하지 않습니다.")
+        return  # 주말인 경우 함수 종료
     
     # 새로운 데이터 감지 (제목과 시트 이름으로 비교 + 날짜 기준)
     new_entries = []
