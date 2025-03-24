@@ -375,6 +375,10 @@ def check_for_new_entries_and_notify():
                 new_entries.append(current_entry)
                 log_message(f"새 항목 감지: {current_entry.get('title')}, 작성일: {date_str}")
 
+        except Exception as e:
+            log_message(f"날짜 파싱 중 오류 발생: {str(e)}")
+            continue  # 오류 발생 시 건너뜀
+
     log_message(f"새로운 항목 수: {len(new_entries)}")
 
     # 새로운 데이터가 있을 경우 이메일 전송
