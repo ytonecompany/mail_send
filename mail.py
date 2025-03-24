@@ -267,21 +267,40 @@ def save_current_data_to_sheet(data):
         try:
             previous_data_sheet = spreadsheet.worksheet("PreviousData")
             
-            # 기존 데이터 삭제 (헤더 제외)
-            rows = previous_data_sheet.row_count
-            if rows > 1:  # 헤더 행 이후의 데이터만 삭제
-                previous_data_sheet.delete_rows(2, rows)
+            # 기존 PreviousData 시트의 모든 데이터 가져오기
+            existing_records = previous_data_sheet.get_all_records()
+            existing_data = []
             
-            # 새 데이터 추가
+            for record in existing_records:
+                existing_data.append({
+                    "title": record.get("title", ""),
+                    "sheet_name": record.get("sheet_name", ""),
+                    "date_sent": record.get("date_sent", "")
+                })
+            
+            # 새로 추가된 데이터만 저장
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            for item in data:
-                previous_data_sheet.append_row([
-                    item.get("title", ""),
-                    item.get("sheet_name", ""),
-                    timestamp
-                ])
+            new_items_added = 0
             
-            log_message(f"스프레드시트에 {len(data)}개의 데이터 저장 성공")
+            for item in data:
+                # 이미 존재하는지 확인
+                exists = False
+                for existing in existing_data:
+                    if (item.get("title") == existing.get("title") and 
+                        item.get("sheet_name") == existing.get("sheet_name")):
+                        exists = True
+                        break
+                
+                # 존재하지 않는 항목만 추가
+                if not exists:
+                    previous_data_sheet.append_row([
+                        item.get("title", ""),
+                        item.get("sheet_name", ""),
+                        timestamp
+                    ])
+                    new_items_added += 1
+            
+            log_message(f"스프레드시트에 {new_items_added}개의 새 데이터 저장 성공")
             
         except WorksheetNotFound:
             # 시트가 없으면 새로 생성
@@ -577,7 +596,7 @@ def setup_google_sheets():
 if __name__ == "__main__":
     log_message("메일 프로그램 시작")
     try:
-        # 테스트 모드 비활성화 (주석 처리)
+        # 테스트 모드는 주석을 해제해서 활성화할 수 있습니다
         # reset_previous_data()
         # log_message("보낸 기록을 초기화하고 모든 항목을 새 항목으로 간주합니다.")
         
