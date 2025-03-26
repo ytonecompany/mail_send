@@ -356,6 +356,7 @@ def check_for_new_entries_and_notify():
     
     # 기준 날짜를 어제로 설정
     reference_date = datetime.now() - timedelta(days=1)
+    reference_date = reference_date.replace(hour=0, minute=0, second=0, microsecond=0)
     log_message(f"기준일자: {reference_date.strftime('%Y-%m-%d')}")
 
     # 새로운 데이터 감지 (제목과 시트 이름으로 비교 + 날짜 기준)
@@ -371,8 +372,8 @@ def check_for_new_entries_and_notify():
                     log_message(f"날짜 파싱 실패: {date_str}")
                     continue
                 
-                # 기준일자와 비교
-                if entry_date < reference_date:
+                # 기준일자와 비교 (같은 날짜도 포함)
+                if entry_date.date() < reference_date.date():
                     log_message(f"기준일자 이전 항목 건너뜀: {current_entry.get('title')}, 작성일: {date_str}")
                     continue
                 
