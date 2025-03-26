@@ -478,7 +478,7 @@ def check_for_new_entries_and_notify():
                     <!-- 본문 내용 -->
                     <div style="padding: 20px;">
                         <div style="margin-bottom: 15px;">
-                            <img src="https://ytonepd.mycafe24.com/img/mailtop.png" style="width: 100%">
+                            <img src="https://ytonepd.mycafe24.com/img/mailtop.jpg" style="width: 100%">
                         </div>
                         
                         <h1 style="font-size: 22px; margin-bottom: 20px;">{sheet_name} 신규 콘텐츠 안내</h1>
