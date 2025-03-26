@@ -325,6 +325,25 @@ def save_current_data_to_sheet(data):
         # 로컬 파일로 폴백
         save_current_data(data)
 
+def parse_date(date_str):
+    """다양한 날짜 형식을 파싱하는 함수"""
+    try:
+        # YYYY-MM-DD 형식
+        if '-' in date_str:
+            return datetime.strptime(date_str, "%Y-%m-%d")
+        # YYYY/MM/DD 형식
+        elif '/' in date_str:
+            return datetime.strptime(date_str, "%Y/%m/%d")
+        # YYYY년 MM월 DD일 형식
+        elif '년' in date_str and '월' in date_str and '일' in date_str:
+            date_str = date_str.replace('년 ', '-').replace('월 ', '-').replace('일', '')
+            return datetime.strptime(date_str, "%Y-%m-%d")
+        else:
+            raise ValueError(f"지원하지 않는 날짜 형식: {date_str}")
+    except Exception as e:
+        log_message(f"날짜 파싱 오류 ({date_str}): {str(e)}")
+        return None
+
 def check_for_new_entries_and_notify():
     """새로운 항목 확인 및 이메일 전송"""
     log_message("새로운 항목 확인 시작")
@@ -337,12 +356,8 @@ def check_for_new_entries_and_notify():
     
     # 기준 날짜를 어제로 설정
     reference_date = datetime.now() - timedelta(days=1)
+    log_message(f"기준일자: {reference_date.strftime('%Y-%m-%d')}")
 
-    # 주말 체크 (토요일과 일요일)
-    if reference_date.weekday() >= 5:  # 5는 토요일, 6은 일요일
-        log_message("주말에는 이메일을 전송하지 않습니다.")
-        return  # 주말인 경우 함수 종료
-    
     # 새로운 데이터 감지 (제목과 시트 이름으로 비교 + 날짜 기준)
     new_entries = []
     for current_entry in current_data:
@@ -351,38 +366,35 @@ def check_for_new_entries_and_notify():
         # 날짜 문자열 파싱
         try:
             if date_str:
-                # 날짜 형식에 따라 파싱 (YYYY-MM-DD 또는 YYYY/MM/DD 형식 가정)
-                if '-' in date_str:
-                    entry_date = datetime.strptime(date_str, "%Y-%m-%d")
-                elif '/' in date_str:
-                    entry_date = datetime.strptime(date_str, "%Y/%m/%d")
-                else:
-                    log_message(f"날짜 형식 인식 불가: {date_str}")
-                    continue  # 날짜 형식이 잘못된 경우 건너뜀
+                entry_date = parse_date(date_str)
+                if not entry_date:
+                    log_message(f"날짜 파싱 실패: {date_str}")
+                    continue
+                
+                # 기준일자와 비교
+                if entry_date < reference_date:
+                    log_message(f"기준일자 이전 항목 건너뜀: {current_entry.get('title')}, 작성일: {date_str}")
+                    continue
+                
+                # 이전에 알림을 보낸 항목인지 확인
+                is_new = True
+                for prev_entry in previous_data:
+                    if (current_entry.get('title') == prev_entry.get('title') and 
+                        current_entry.get('sheet_name') == prev_entry.get('sheet_name')):
+                        is_new = False
+                        break
+                
+                if is_new:
+                    new_entries.append(current_entry)
+                    log_message(f"새 항목 감지: {current_entry.get('title')}, 작성일: {date_str}")
+
             else:
                 log_message("작성일 데이터 없음")
-                continue  # 작성일 데이터가 없는 경우 건너뜀
-            
-            # 기준일자와 비교
-            if entry_date < reference_date:
-                log_message(f"기준일자 이전 항목 건너뜀: {current_entry.get('title')}, 작성일: {date_str}")
                 continue
-            
-            # 이전에 알림을 보낸 항목인지 확인
-            is_new = True
-            for prev_entry in previous_data:
-                if (current_entry.get('title') == prev_entry.get('title') and 
-                    current_entry.get('sheet_name') == prev_entry.get('sheet_name')):
-                    is_new = False
-                    break
-            
-            if is_new:
-                new_entries.append(current_entry)
-                log_message(f"새 항목 감지: {current_entry.get('title')}, 작성일: {date_str}")
 
         except Exception as e:
-            log_message(f"날짜 파싱 중 오류 발생: {str(e)}")
-            continue  # 오류 발생 시 건너뜀
+            log_message(f"날짜 처리 중 오류 발생: {str(e)}")
+            continue
 
     log_message(f"새로운 항목 수: {len(new_entries)}")
 
