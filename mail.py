@@ -372,22 +372,22 @@ def check_for_new_entries_and_notify():
                     log_message(f"날짜 파싱 실패: {date_str}")
                     continue
                 
-                # 기준일자와 비교 (같은 날짜도 포함)
-                if entry_date.date() < reference_date.date():
+                # 기준일자와 비교 (같은 날짜 포함)
+                if entry_date.date() >= reference_date.date():
+                    # 이전에 알림을 보낸 항목인지 확인
+                    is_new = True
+                    for prev_entry in previous_data:
+                        if (current_entry.get('title') == prev_entry.get('title') and 
+                            current_entry.get('sheet_name') == prev_entry.get('sheet_name')):
+                            is_new = False
+                            break
+                    
+                    if is_new:
+                        new_entries.append(current_entry)
+                        log_message(f"새 항목 감지: {current_entry.get('title')}, 작성일: {date_str}")
+                else:
                     log_message(f"기준일자 이전 항목 건너뜀: {current_entry.get('title')}, 작성일: {date_str}")
                     continue
-                
-                # 이전에 알림을 보낸 항목인지 확인
-                is_new = True
-                for prev_entry in previous_data:
-                    if (current_entry.get('title') == prev_entry.get('title') and 
-                        current_entry.get('sheet_name') == prev_entry.get('sheet_name')):
-                        is_new = False
-                        break
-                
-                if is_new:
-                    new_entries.append(current_entry)
-                    log_message(f"새 항목 감지: {current_entry.get('title')}, 작성일: {date_str}")
 
             else:
                 log_message("작성일 데이터 없음")
