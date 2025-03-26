@@ -144,8 +144,8 @@ def send_email(subject, html_content, to_email):
     # SMTP 서버 설정
     smtp_server = 'smtp.naver.com'
     smtp_port = 465
-    smtp_user = 'bighun_y@naver.com'
-    smtp_password = os.environ.get('EMAIL_PASSWORD', 'QF4XQKV4XWXL')
+    smtp_user = 'y-toney@naver.com'
+    smtp_password = os.environ.get('EMAIL_PASSWORD', 'ytonecompany1!')
 
     # 이메일 구성
     msg = MIMEMultipart('alternative')
