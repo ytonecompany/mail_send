@@ -521,7 +521,6 @@ def check_for_new_entries_and_notify():
                             <div style="margin-bottom: 10px;"> 문의사항이 있으실 경우, <a href="mailto:th.yoon@y-tone.co.kr" style="color: #0078ff;">th.yoon@y-tone.co.kr</a>로 남겨주시기 바랍니다.</div>
                             <div>copyright © 와이톤 All rights reserved.</div>
                             <div>(주)와이톤 | 서울특별시 강남구 선릉로 131길 9, 하나빌딩 3층 & 10층</div>
-                            <div>Tel. 02-6203-0416 | E-mail. th.yoon@y-tone.co.kr</div>
                         </div>
                     </div>
                 </div>
