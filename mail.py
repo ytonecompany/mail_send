@@ -411,7 +411,7 @@ def check_for_new_entries_and_notify():
             link = entry.get('original_link', '#')
             
             # 제목 설정
-            subject = f"[마케팅 아카이빙] {sheet_name} 신규 콘텐츠: {title}"
+            subject = f"[YTONE_Intelligence] {sheet_name} 신규 콘텐츠: {title}"
             
             # 콘텐츠 부분을 정리하고 불릿 포인트에 줄바꿈 적용
             content_formatted = ""
@@ -483,8 +483,8 @@ def check_for_new_entries_and_notify():
                         
                         <h1 style="font-size: 22px; margin-bottom: 20px;">{sheet_name} 신규 콘텐츠 안내</h1>
                         
-                        <p>안녕하세요. 마케팅 아카이빙입니다.</p>
-                        <p>최신 마케팅 콘텐츠를 받고 사용해주시는 회원님께 진심으로 감사드립니다.</p>
+                        <p>안녕하세요. YTONE_Intelligence입니다.</p>
+                        <p>최신 마케팅 콘텐츠를 받고 사용해주시는 와이토너님께 진심으로 감사드립니다.</p>
                         <p>{sheet_name}에서 새로운 콘텐츠가 등록되어 안내드립니다.</p>
                         
                         <div style="margin: 20px 0;">
@@ -510,15 +510,15 @@ def check_for_new_entries_and_notify():
                         <div style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed #eeeeee;">
                             <div style="font-weight: bold; margin-bottom: 10px;">자세한 내용 살펴보기</div>
                             <div style="margin-bottom: 5px;"><a href="{link}" style="color: #0078ff;">여기</a>에서 원문 확인이 가능합니다.</div>
-                            <div style="margin-bottom: 5px;">마케팅 아카이빙 홈페이지: <a href="https://ytonepd.mycafe24.com" style="color: #0078ff;">https://ytonepd.mycafe24.com</a>에서도 전체 콘텐츠를 확인하실 수 있습니다.</div>
+                            <div style="margin-bottom: 5px;">YTONE_Intelligence 홈페이지: <a href="https://ytonepd.mycafe24.com" style="color: #0078ff;">https://ytonepd.mycafe24.com</a>에서도 전체 콘텐츠를 확인하실 수 있습니다.</div>
                         </div>
                         
-                        <p>앞으로도 마케팅 아카이빙은 와이토너님들께 더욱 다양한 정보를 제공하기 위해 노력하겠습니다. 감사합니다.</p>
+                        <p>앞으로도 YTONE_Intelligence는 와이토너님들께 더욱 다양한 정보를 제공하기 위해 노력하겠습니다. 감사합니다.</p>
                         
                         <!-- 푸터 -->
                         <div style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #eeeeee; color: #666666; font-size: 12px;">
-                            <div style="font-weight: bold; margin-bottom: 10px;">마케팅 아카이빙</div>
-                            <div style="margin-bottom: 10px;">본 메일은 정보통신망법에 의거하여, 메일 수신동의와 상관없이 발송되었습니다. 문의사항이 있으실 경우, <a href="mailto:th.yoon@y-tone.co.kr" style="color: #0078ff;">th.yoon@y-tone.co.kr</a>로 남겨주시기 바랍니다.</div>
+                            <div style="font-weight: bold; margin-bottom: 10px;">YTONE_Intelligence</div>
+                            <div style="margin-bottom: 10px;"> 문의사항이 있으실 경우, <a href="mailto:th.yoon@y-tone.co.kr" style="color: #0078ff;">th.yoon@y-tone.co.kr</a>로 남겨주시기 바랍니다.</div>
                             <div>copyright © 와이톤 All rights reserved.</div>
                             <div>(주)와이톤 | 서울특별시 강남구 선릉로 131길 9, 하나빌딩 3층 & 10층</div>
                             <div>Tel. 02-6203-0416 | E-mail. th.yoon@y-tone.co.kr</div>
