@@ -531,7 +531,7 @@ def check_for_new_entries_and_notify():
             </html>
             """
             
-            success = send_email(subject, html_content, 'th.yoon@y-tone.co.kr')
+            success = send_email(subject, html_content, 'th.yoon@y-tone.co.kr', 'business@y-tone.co.kr')
             if success:
                 log_message(f"'{title}' 이메일 전송 성공")
             else:
