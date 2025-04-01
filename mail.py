@@ -510,7 +510,7 @@ def check_for_new_entries_and_notify():
                         <div style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed #eeeeee;">
                             <div style="font-weight: bold; margin-bottom: 10px;">자세한 내용 살펴보기</div>
                             <div style="margin-bottom: 5px;"><a href="{link}" style="color: #0078ff;">여기</a>에서 원문 확인이 가능합니다.</div>
-                            <div style="margin-bottom: 5px;">YTONE_Intelligence 홈페이지: <a href="https://ytonepd.mycafe24.com" style="color: #0078ff;">https://ytonepd.mycafe24.com</a>에서도 전체 콘텐츠를 확인하실 수 있습니다.</div>
+                            <div style="margin-bottom: 5px;">YTONE_Intelligence 홈페이지: <a href="https://ytoneintelligence.co.kr/" style="color: #0078ff;">https://ytoneintelligence.co.kr/</a>에서도 전체 콘텐츠를 확인하실 수 있습니다.</div>
                         </div>
                         
                         <p>앞으로도 YTONE_Intelligence는 와이토너님들께 더욱 다양한 정보를 제공하기 위해 노력하겠습니다. 감사합니다.</p>
