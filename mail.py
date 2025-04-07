@@ -158,9 +158,13 @@ def send_email(subject, html_content, to_email):
     try:
         server = smtplib.SMTP_SSL(smtp_server, smtp_port)
         server.login(smtp_user, smtp_password)
-        server.sendmail(smtp_user, to_email, msg.as_string())
+        
+        # 수신자가 쉼표로 구분된 문자열인 경우 리스트로 변환
+        recipients = [email.strip() for email in to_email.split(',')] if isinstance(to_email, str) and ',' in to_email else [to_email]
+        
+        server.sendmail(smtp_user, recipients, msg.as_string())
         server.quit()
-        log_message("이메일 전송 성공")
+        log_message(f"이메일 전송 성공: {to_email}")
         return True
     except Exception as e:
         log_message(f"이메일 전송 실패: {e}")
@@ -531,7 +535,8 @@ def check_for_new_entries_and_notify():
             </html>
             """
             
-            success = send_email(subject, html_content, 'th.yoon@y-tone.co.kr', 'business@y-tone.co.kr')
+            # 이메일 전송
+            success = send_email(subject, html_content, 'business@y-tone.co.kr, th.yoon@y-tone.co.kr')
             if success:
                 log_message(f"'{title}' 이메일 전송 성공")
             else:
