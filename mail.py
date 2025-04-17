@@ -110,6 +110,8 @@ def get_spreadsheet_data():
                 # 스프레드시트 열 이름 매핑
                 # A1열: 제목 (title), B1열: 구분 (category), C1열: 작성일 (date)
                 # D1열: 링크 (link), E1열: 내용 (content), F1열: 요약 (summary)
+                # G1열: 30년차 (expert_advice), H1열: 변경 개요의 중요성 (importance)
+                # I1열: 실무 적용 제언 (actions)
                 
                 # 실제 스프레드시트 열 이름에 맞게 설정
                 title_key = '제목'
@@ -118,6 +120,9 @@ def get_spreadsheet_data():
                 link_key = '링크'
                 content_key = '내용'
                 summary_key = '요약'
+                expert_advice_key = '30년차'  # G1열
+                importance_key = '변경 개요의 중요성'  # H1열
+                actions_key = '실무 적용 제언'  # I1열
                 
                 # 데이터 매핑
                 record['title'] = record.get(title_key, '제목 없음')
@@ -126,6 +131,9 @@ def get_spreadsheet_data():
                 record['original_link'] = record.get(link_key, '#')
                 record['content'] = record.get(content_key, '')
                 record['summary'] = record.get(summary_key, '요약 없음')
+                record['expert_advice'] = record.get(expert_advice_key, '')  # G1열 30년차 조언
+                record['importance'] = record.get(importance_key, '')  # H1열 변경 개요의 중요성
+                record['actions'] = record.get(actions_key, '')  # I1열 실무 적용 제언
                 
                 latest_records.append(record)
                 
@@ -413,6 +421,9 @@ def check_for_new_entries_and_notify():
             summary = entry.get('summary', '요약 없음')
             content = entry.get('content', '')
             link = entry.get('original_link', '#')
+            expert_advice = entry.get('expert_advice', '')  # G열 30년차 조언
+            importance = entry.get('importance', '')  # H열 변경 개요의 중요성
+            actions = entry.get('actions', '')  # I열 실무 적용 제언
             
             # 제목 설정
             subject = f"[YTONE_Intelligence] {sheet_name} 신규 콘텐츠: {title}"
@@ -466,6 +477,55 @@ def check_for_new_entries_and_notify():
                         else:
                             summary_formatted += f"<p>{line}</p>\n"
             
+            # 추가: 30년차 조언, 변경 개요의 중요성, 실무 적용 제언에 대한 포맷팅
+            expert_advice_formatted = ""
+            if expert_advice:
+                expert_advice_lines = expert_advice.split('\n')
+                for line in expert_advice_lines:
+                    line = line.strip()
+                    if line:
+                        if '•' in line:
+                            parts = line.split('•')
+                            if parts[0].strip():
+                                expert_advice_formatted += f"<p>{parts[0].strip()}</p>\n"
+                            for part in parts[1:]:
+                                if part.strip():
+                                    expert_advice_formatted += f"<p style='margin: 8px 0; margin-left: 15px;'>• {part.strip()}</p>\n"
+                        else:
+                            expert_advice_formatted += f"<p>{line}</p>\n"
+            
+            importance_formatted = ""
+            if importance:
+                importance_lines = importance.split('\n')
+                for line in importance_lines:
+                    line = line.strip()
+                    if line:
+                        if '•' in line:
+                            parts = line.split('•')
+                            if parts[0].strip():
+                                importance_formatted += f"<p>{parts[0].strip()}</p>\n"
+                            for part in parts[1:]:
+                                if part.strip():
+                                    importance_formatted += f"<p style='margin: 8px 0; margin-left: 15px;'>• {part.strip()}</p>\n"
+                        else:
+                            importance_formatted += f"<p>{line}</p>\n"
+            
+            actions_formatted = ""
+            if actions:
+                actions_lines = actions.split('\n')
+                for line in actions_lines:
+                    line = line.strip()
+                    if line:
+                        if '•' in line:
+                            parts = line.split('•')
+                            if parts[0].strip():
+                                actions_formatted += f"<p>{parts[0].strip()}</p>\n"
+                            for part in parts[1:]:
+                                if part.strip():
+                                    actions_formatted += f"<p style='margin: 8px 0; margin-left: 15px;'>• {part.strip()}</p>\n"
+                        else:
+                            actions_formatted += f"<p>{line}</p>\n"
+            
             # 수정된 HTML 템플릿 - 최대 넓이 630px 및 중앙 정렬 추가
             html_content = f"""
             <!DOCTYPE html>
@@ -509,6 +569,36 @@ def check_for_new_entries_and_notify():
                                 {summary_formatted if summary_formatted else summary}
                             </div>
                         </div>
+                        
+                        <!-- G열: 30년차 조언 -->
+                        {f'''
+                        <div style="background-color: #f3e5f5; padding: 15px; margin: 15px 0; border-radius: 4px; border-left: 3px solid #8e44ad;">
+                            <div style="font-weight: bold; margin-bottom: 10px;">와이토너를 위한 제안</div>
+                            <div style="line-height: 1.7;">
+                                {expert_advice_formatted if expert_advice_formatted else expert_advice}
+                            </div>
+                        </div>
+                        ''' if expert_advice else ''}
+                        
+                        <!-- H열: 변경 개요의 중요성 -->
+                        {f'''
+                        <div style="background-color: #e3f2fd; padding: 15px; margin: 15px 0; border-radius: 4px; border-left: 3px solid #3498db;">
+                            <div style="font-weight: bold; margin-bottom: 10px;">변경 개요의 중요성</div>
+                            <div style="line-height: 1.7;">
+                                {importance_formatted if importance_formatted else importance}
+                            </div>
+                        </div>
+                        ''' if importance else ''}
+                        
+                        <!-- I열: 실무 적용 제언 -->
+                        {f'''
+                        <div style="background-color: #e8f5e9; padding: 15px; margin: 15px 0; border-radius: 4px; border-left: 3px solid #2ecc71;">
+                            <div style="font-weight: bold; margin-bottom: 10px;">실무 적용 제안</div>
+                            <div style="line-height: 1.7;">
+                                {actions_formatted if actions_formatted else actions}
+                            </div>
+                        </div>
+                        ''' if actions else ''}
                         
                         <!-- 접근 방법 -->
                         <div style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed #eeeeee;">
