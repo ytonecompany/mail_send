@@ -510,22 +510,6 @@ def check_for_new_entries_and_notify():
                         else:
                             importance_formatted += f"<p>{line}</p>\n"
             
-            actions_formatted = ""
-            if actions:
-                actions_lines = actions.split('\n')
-                for line in actions_lines:
-                    line = line.strip()
-                    if line:
-                        if '•' in line:
-                            parts = line.split('•')
-                            if parts[0].strip():
-                                actions_formatted += f"<p>{parts[0].strip()}</p>\n"
-                            for part in parts[1:]:
-                                if part.strip():
-                                    actions_formatted += f"<p style='margin: 8px 0; margin-left: 15px;'>• {part.strip()}</p>\n"
-                        else:
-                            actions_formatted += f"<p>{line}</p>\n"
-            
             # 수정된 HTML 템플릿 - 최대 넓이 630px 및 중앙 정렬 추가
             html_content = f"""
             <!DOCTYPE html>
@@ -589,16 +573,6 @@ def check_for_new_entries_and_notify():
                             </div>
                         </div>
                         ''' if importance else ''}
-                        
-                        <!-- I열: 실무 적용 제언 -->
-                        {f'''
-                        <div style="background-color: #e8f5e9; padding: 15px; margin: 15px 0; border-radius: 4px; border-left: 3px solid #2ecc71;">
-                            <div style="font-weight: bold; margin-bottom: 10px;">실무 적용 제안</div>
-                            <div style="line-height: 1.7;">
-                                {actions_formatted if actions_formatted else actions}
-                            </div>
-                        </div>
-                        ''' if actions else ''}
                         
                         <!-- 접근 방법 -->
                         <div style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed #eeeeee;">
