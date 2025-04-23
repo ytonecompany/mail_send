@@ -110,7 +110,7 @@ def get_spreadsheet_data():
                 # 스프레드시트 열 이름 매핑
                 # A1열: 제목 (title), B1열: 구분 (category), C1열: 작성일 (date)
                 # D1열: 링크 (link), E1열: 내용 (content), F1열: 요약 (summary)
-                # G1열: 30년차 (expert_advice), H1열: 본 공지의 중요성 (importance)
+                # G1열: 30년차 (expert_advice), H1열: 변경 개요의 중요성 (importance)
                 # I1열: 실무 적용 제언 (actions)
                 
                 # 실제 스프레드시트 열 이름에 맞게 설정
@@ -121,7 +121,7 @@ def get_spreadsheet_data():
                 content_key = '내용'
                 summary_key = '요약'
                 expert_advice_key = '30년차'  # G1열
-                importance_key = '본 공지의 중요성'  # H1열
+                importance_key = '변경 개요의 중요성'  # H1열
                 actions_key = '실무 적용 제언'  # I1열
                 
                 # 데이터 매핑
@@ -132,7 +132,7 @@ def get_spreadsheet_data():
                 record['content'] = record.get(content_key, '')
                 record['summary'] = record.get(summary_key, '요약 없음')
                 record['expert_advice'] = record.get(expert_advice_key, '')  # G1열 30년차 조언
-                record['importance'] = record.get(importance_key, '')  # H1열 본 공지의 중요성
+                record['importance'] = record.get(importance_key, '')  # H1열 변경 개요의 중요성
                 record['actions'] = record.get(actions_key, '')  # I1열 실무 적용 제언
                 
                 latest_records.append(record)
@@ -422,7 +422,7 @@ def check_for_new_entries_and_notify():
             content = entry.get('content', '')
             link = entry.get('original_link', '#')
             expert_advice = entry.get('expert_advice', '')  # G열 30년차 조언
-            importance = entry.get('importance', '')  # H열 본 공지의 중요성
+            importance = entry.get('importance', '')  # H열 변경 개요의 중요성
             actions = entry.get('actions', '')  # I열 실무 적용 제언
             
             # 제목 설정
@@ -477,7 +477,7 @@ def check_for_new_entries_and_notify():
                         else:
                             summary_formatted += f"<p>{line}</p>\n"
             
-            # 추가: 30년차 조언, 본 공지의 중요성, 실무 적용 제언에 대한 포맷팅
+            # 추가: 30년차 조언, 변경 개요의 중요성, 실무 적용 제언에 대한 포맷팅
             expert_advice_formatted = ""
             if expert_advice:
                 expert_advice_lines = expert_advice.split('\n')
@@ -564,10 +564,10 @@ def check_for_new_entries_and_notify():
                         </div>
                         ''' if expert_advice else ''}
                         
-                        <!-- H열: 본 공지의 중요성 -->
+                        <!-- H열: 변경 개요의 중요성 -->
                         {f'''
                         <div style="background-color: #e3f2fd; padding: 15px; margin: 15px 0; border-radius: 4px; border-left: 3px solid #3498db;">
-                            <div style="font-weight: bold; margin-bottom: 10px;">본 공지의 중요성</div>
+                            <div style="font-weight: bold; margin-bottom: 10px;">변경 개요의 중요성</div>
                             <div style="line-height: 1.7;">
                                 {importance_formatted if importance_formatted else importance}
                             </div>
