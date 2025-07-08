@@ -1,55 +1,24 @@
-#!/usr/local/bin/python3
-import json
+from openai import OpenAI
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-import os
-from datetime import datetime, timedelta
-import os.path
 from google.oauth2 import service_account
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import re
-from bs4 import BeautifulSoup
-import requests
-import pandas as pd
-import argparse
-from gspread.exceptions import APIError, SpreadsheetNotFound, WorksheetNotFound
+import time
+from datetime import datetime
 import logging
-import sys
+import os
 
 # 환경 확인 (서버인지 로컬인지)
 IS_SERVER = os.path.exists('/home/hosting_users/ytonepd/www')
 
-# GitHub Actions에서 실행할 때의 환경 설정
-IS_GITHUB_ACTIONS = 'GITHUB_ACTIONS' in os.environ
-
-# 로그 파일 경로 설정
+# 로깅 설정 수정
 if IS_SERVER:
     # 서버 환경
-    log_file = '/home/hosting_users/ytonepd/www/mail.log'
-    previous_data_file = '/home/hosting_users/ytonepd/www/previous_data.json'
+    log_file = '/home/hosting_users/ytonepd/www/crawler.log'
     error_log_file = '/home/hosting_users/ytonepd/www/error_log.txt'
-elif IS_GITHUB_ACTIONS:
-    # GitHub Actions 환경
-    log_file = os.path.join(os.getcwd(), 'mail.log')
-    previous_data_file = os.path.join(os.getcwd(), 'previous_data.json')
-    error_log_file = os.path.join(os.getcwd(), 'error_log.txt')
 else:
     # 로컬 환경
     log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
-    os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, 'mail.log')
-    previous_data_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'previous_data.json')
+    os.makedirs(log_dir, exist_ok=True)  # 로그 디렉토리가 없으면 생성
+    log_file = os.path.join(log_dir, 'crawler.log')
     error_log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'error_log.txt')
 
 logging.basicConfig(
@@ -58,648 +27,1042 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-def log_message(message):
-    """로그 파일에 메시지 기록"""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_entry = f"{timestamp} - {message}"
-    with open(log_file, 'a') as f:
-        f.write(log_entry + "\n")
-    print(log_entry)  # GitHub Actions 로그에 출력
+# 환경 변수에서 API 키 읽기
+try:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError("API 키가 비어 있습니다. 환경 변수를 확인하세요.")
+except KeyError:
+    raise ValueError("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.")
 
-def get_spreadsheet_data():
-    """스프레드시트에서 데이터 가져오기"""
-    log_message("스프레드시트 데이터 가져오기 시작")
-    
-    # JSON 파일 생성 (환경 변수에서 읽기)
-    json_content = os.environ.get('GOOGLE_SHEETS_CREDENTIALS')
-    if not json_content:
-        raise ValueError("환경 변수 'GOOGLE_SHEETS_CREDENTIALS'가 설정되지 않았습니다.")
-    
-    # 임시 JSON 파일 생성
-    creds_file = 'service_account.json'
-    with open(creds_file, 'w') as f:
-        f.write(json_content)
-    
-    # 파일 생성 확인 로그
-    if os.path.exists(creds_file):
-        log_message(f"JSON 파일 생성 성공: {creds_file}")
-    else:
-        log_message(f"JSON 파일 생성 실패: {creds_file}")
-        raise FileNotFoundError(f"JSON 파일을 생성할 수 없습니다: {creds_file}")
-    
-    # Google Sheets API 설정
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name(creds_file, scope)
-    client = gspread.authorize(creds)
-
-    # 스프레드시트 열기
-    spreadsheet = client.open_by_key("1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg")
-    sheets = ["Naver_Ads", "Google_Ads", "Meta_Ads"]
-
-    # 각 시트에서 가장 최근 작성일 데이터 추출
-    latest_records = []
-    for sheet_name in sheets:
-        try:
-            sheet = spreadsheet.worksheet(sheet_name)
-            records = sheet.get_all_records()
-            
-            # 스프레드시트의 모든 행 가져오기 (최신 항목만이 아닌 전체 데이터)
-            for record in records:
-                record['sheet_name'] = sheet_name
-                
-                # 스프레드시트 열 이름 매핑
-                # A1열: 제목 (title), B1열: 구분 (category), C1열: 작성일 (date)
-                # D1열: 링크 (link), E1열: 내용 (content), F1열: 요약 (summary)
-                # G1열: 30년차 (expert_advice), H1열: 변경 개요의 중요성 (importance)
-                # I1열: 실무 적용 제언 (actions)
-                
-                # 실제 스프레드시트 열 이름에 맞게 설정
-                title_key = '제목'
-                category_key = '구분'
-                date_key = '작성일'  # C1열
-                link_key = '링크'
-                content_key = '내용'
-                summary_key = '요약'
-                expert_advice_key = '30년차'  # G1열
-                importance_key = '변경 개요의 중요성'  # H1열
-                actions_key = '실무 적용 제언'  # I1열
-                
-                # 데이터 매핑
-                record['title'] = record.get(title_key, '제목 없음')
-                record['category'] = record.get(category_key, '')
-                record['date'] = record.get(date_key, '')  # C1열 작성일
-                record['original_link'] = record.get(link_key, '#')
-                record['content'] = record.get(content_key, '')
-                record['summary'] = record.get(summary_key, '요약 없음')
-                record['expert_advice'] = record.get(expert_advice_key, '')  # G1열 30년차 조언
-                record['importance'] = record.get(importance_key, '')  # H1열 변경 개요의 중요성
-                record['actions'] = record.get(actions_key, '')  # I1열 실무 적용 제언
-                
-                latest_records.append(record)
-                
-            log_message(f"{sheet_name} 시트에서 {len(records)}개의 데이터 가져옴")
-            
-        except Exception as e:
-            log_message(f"{sheet_name} 시트 데이터 가져오기 실패: {str(e)}")
-
-    log_message(f"총 {len(latest_records)}개의 데이터 가져옴")
-    return latest_records
-
-def send_email(subject, html_content, to_email):
-    """이메일 전송"""
-    log_message(f"이메일 전송 시작: {subject}")
-    
-    # SMTP 서버 설정
-    smtp_server = 'smtp.naver.com'
-    smtp_port = 465
-    smtp_user = 'ytonemkt@naver.com'
-    smtp_password = os.environ.get('EMAIL_PASSWORD', 'ytonecompany1!')
-
-    # 이메일 구성
-    msg = MIMEMultipart('alternative')
-    msg['From'] = smtp_user
-    msg['To'] = to_email
-    msg['Subject'] = subject
-    msg.attach(MIMEText(html_content, 'html'))
-
-    # 이메일 전송
-    try:
-        server = smtplib.SMTP_SSL(smtp_server, smtp_port)
-        server.login(smtp_user, smtp_password)
-        
-        # 수신자가 쉼표로 구분된 문자열인 경우 리스트로 변환
-        recipients = [email.strip() for email in to_email.split(',')] if isinstance(to_email, str) and ',' in to_email else [to_email]
-        
-        server.sendmail(smtp_user, recipients, msg.as_string())
-        server.quit()
-        log_message(f"이메일 전송 성공: {to_email}")
-        return True
-    except Exception as e:
-        log_message(f"이메일 전송 실패: {e}")
-        return False
-
-def load_previous_data():
-    """이전에 전송한 데이터 로드"""
-    try:
-        with open(previous_data_file, 'r') as file:
-            return json.load(file)
-    except FileNotFoundError:
-        log_message("이전 데이터 파일이 없음, 새로 생성")
-        return []
-    except Exception as e:
-        log_message(f"이전 데이터 로드 실패: {str(e)}")
-        return []
-
-def save_current_data(data):
-    """현재 데이터 저장"""
-    try:
-        with open(previous_data_file, 'w') as file:
-            json.dump(data, file)
-        log_message("현재 데이터 저장 성공")
-    except Exception as e:
-        log_message(f"현재 데이터 저장 실패: {str(e)}")
-
-def load_previous_data_from_sheet():
-    """Google 스프레드시트에서 이전에 전송한 데이터 로드"""
-    log_message("Google 스프레드시트에서 이전 데이터 로드 시작")
-    
-    try:
-        # JSON 파일 생성 (환경 변수에서 읽기)
-        json_content = os.environ.get('GOOGLE_SHEETS_CREDENTIALS')
-        if not json_content:
-            raise ValueError("환경 변수 'GOOGLE_SHEETS_CREDENTIALS'가 설정되지 않았습니다.")
-        
-        # 임시 JSON 파일 생성
-        creds_file = 'service_account.json'
-        with open(creds_file, 'w') as f:
-            f.write(json_content)
-        
-        # Google Sheets API 설정
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name(creds_file, scope)
-        client = gspread.authorize(creds)
-
-        # 스프레드시트 열기
-        spreadsheet = client.open_by_key("1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg")
-        
-        # 이전 데이터 시트가 있는지 확인
-        try:
-            previous_data_sheet = spreadsheet.worksheet("PreviousData")
-            records = previous_data_sheet.get_all_records()
-            
-            # 데이터 변환 (필요하다면)
-            previous_data = []
-            for record in records:
-                # 스프레드시트에서는 행 단위로 데이터를 저장하므로
-                # 각 행은 이전에 전송된 항목 하나를 나타냄
-                previous_data.append({
-                    "title": record.get("title", ""),
-                    "sheet_name": record.get("sheet_name", "")
-                })
-            
-            log_message(f"스프레드시트에서 {len(previous_data)}개의 이전 데이터 로드 성공")
-            return previous_data
-            
-        except WorksheetNotFound:
-            # 시트가 없으면 새로 생성
-            log_message("PreviousData 시트가 없어 새로 생성합니다.")
-            spreadsheet.add_worksheet(title="PreviousData", rows=1000, cols=10)
-            # 헤더 설정
-            previous_data_sheet = spreadsheet.worksheet("PreviousData")
-            previous_data_sheet.append_row(["title", "sheet_name", "date_sent"])
-            return []
-            
-    except Exception as e:
-        log_message(f"스프레드시트에서 이전 데이터 로드 실패: {str(e)}")
-        # 로컬 파일로 폴백
-        return load_previous_data()
-
-def save_current_data_to_sheet(data):
-    """현재 데이터를 Google 스프레드시트에 저장"""
-    log_message("현재 데이터를 Google 스프레드시트에 저장 시작")
-    
-    try:
-        # JSON 파일 생성 (환경 변수에서 읽기)
-        json_content = os.environ.get('GOOGLE_SHEETS_CREDENTIALS')
-        if not json_content:
-            raise ValueError("환경 변수 'GOOGLE_SHEETS_CREDENTIALS'가 설정되지 않았습니다.")
-        
-        # 임시 JSON 파일 생성
-        creds_file = 'service_account.json'
-        with open(creds_file, 'w') as f:
-            f.write(json_content)
-        
-        # Google Sheets API 설정
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name(creds_file, scope)
-        client = gspread.authorize(creds)
-
-        # 스프레드시트 열기
-        spreadsheet = client.open_by_key("1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg")
-        
-        try:
-            previous_data_sheet = spreadsheet.worksheet("PreviousData")
-            
-            # 기존 데이터를 딕셔너리로 변환하여 중복 제거
-            existing_records = previous_data_sheet.get_all_records()
-            unique_entries = {}
-            
-            # 기존 데이터에서 고유한 항목만 유지
-            for record in existing_records:
-                key = (record.get("title", ""), record.get("sheet_name", ""))
-                if key not in unique_entries:
-                    unique_entries[key] = record
-            
-            # 새 데이터 추가
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            for item in data:
-                key = (item.get("title", ""), item.get("sheet_name", ""))
-                if key not in unique_entries:
-                    unique_entries[key] = {
-                        "title": item.get("title", ""),
-                        "sheet_name": item.get("sheet_name", ""),
-                        "date_sent": timestamp
-                    }
-            
-            # 시트 초기화 및 헤더 추가
-            previous_data_sheet.clear()
-            previous_data_sheet.append_row(["title", "sheet_name", "date_sent"])
-            
-            # 고유한 데이터만 시트에 추가
-            for entry in unique_entries.values():
-                previous_data_sheet.append_row([
-                    entry.get("title", ""),
-                    entry.get("sheet_name", ""),
-                    entry.get("date_sent", "")
-                ])
-            
-            log_message(f"스프레드시트에 {len(unique_entries)} 개의 고유 데이터 저장 성공")
-            
-        except WorksheetNotFound:
-            # 시트가 없으면 새로 생성
-            log_message("PreviousData 시트가 없어 새로 생성합니다.")
-            previous_data_sheet = spreadsheet.add_worksheet(title="PreviousData", rows=1000, cols=10)
-            previous_data_sheet.append_row(["title", "sheet_name", "date_sent"])
-            
-            # 새 데이터 추가
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            for item in data:
-                previous_data_sheet.append_row([
-                    item.get("title", ""),
-                    item.get("sheet_name", ""),
-                    timestamp
-                ])
-            
-            log_message(f"새 시트에 {len(data)}개의 데이터 저장 성공")
-            
-    except Exception as e:
-        log_message(f"스프레드시트에 데이터 저장 실패: {str(e)}")
-        # 로컬 파일로 폴백
-        save_current_data(data)
-
-def parse_date(date_str):
-    """다양한 날짜 형식을 파싱하는 함수"""
-    try:
-        # YYYY-MM-DD 형식
-        if '-' in date_str:
-            return datetime.strptime(date_str, "%Y-%m-%d")
-        # YYYY/MM/DD 형식
-        elif '/' in date_str:
-            return datetime.strptime(date_str, "%Y/%m/%d")
-        # YYYY년 MM월 DD일 형식
-        elif '년' in date_str and '월' in date_str and '일' in date_str:
-            date_str = date_str.replace('년 ', '-').replace('월 ', '-').replace('일', '')
-            return datetime.strptime(date_str, "%Y-%m-%d")
-        else:
-            raise ValueError(f"지원하지 않는 날짜 형식: {date_str}")
-    except Exception as e:
-        log_message(f"날짜 파싱 오류 ({date_str}): {str(e)}")
-        return None
-
-def check_for_new_entries_and_notify():
-    """새로운 항목 확인 및 이메일 전송"""
-    log_message("새로운 항목 확인 시작")
-    
-    # 이전 데이터 로드 (Google 시트에서)
-    previous_data = load_previous_data_from_sheet()
-
-    # 현재 데이터 로드
-    current_data = get_spreadsheet_data()
-    
-    # 기준 날짜를 어제로 설정
-    reference_date = datetime.now() - timedelta(days=1)
-    reference_date = reference_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    log_message(f"기준일자: {reference_date.strftime('%Y-%m-%d')}")
-
-    # 새로운 데이터 감지 (제목과 시트 이름으로 비교 + 날짜 기준)
-    new_entries = []
-    for current_entry in current_data:
-        date_str = current_entry.get('date', '')
-        
-        # 날짜 문자열 파싱
-        try:
-            if date_str:
-                entry_date = parse_date(date_str)
-                if not entry_date:
-                    log_message(f"날짜 파싱 실패: {date_str}")
-                    continue
-                
-                # 기준일자와 비교 (같은 날짜 포함)
-                if entry_date.date() >= reference_date.date():
-                    # 이전에 알림을 보낸 항목인지 확인
-                    is_new = True
-                    for prev_entry in previous_data:
-                        if (current_entry.get('title') == prev_entry.get('title') and 
-                            current_entry.get('sheet_name') == prev_entry.get('sheet_name')):
-                            is_new = False
-                            break
-                    
-                    if is_new:
-                        new_entries.append(current_entry)
-                        log_message(f"새 항목 감지: {current_entry.get('title')}, 작성일: {date_str}")
-                else:
-                    log_message(f"기준일자 이전 항목 건너뜀: {current_entry.get('title')}, 작성일: {date_str}")
-                    continue
-
-            else:
-                log_message("작성일 데이터 없음")
-                continue
-
-        except Exception as e:
-            log_message(f"날짜 처리 중 오류 발생: {str(e)}")
-            continue
-
-    log_message(f"새로운 항목 수: {len(new_entries)}")
-
-    # 새로운 데이터가 있을 경우 이메일 전송
-    if new_entries:
-        for entry in new_entries:
-            sheet_name = entry.get('sheet_name', 'Unknown')
-            date_str = entry.get('date', '날짜 정보 없음')
-            category = entry.get('category', '')
-            title = entry.get('title', '제목 없음')
-            summary = entry.get('summary', '요약 없음')
-            content = entry.get('content', '')
-            link = entry.get('original_link', '#')
-            expert_advice = entry.get('expert_advice', '')  # G열 30년차 조언
-            importance = entry.get('importance', '')  # H열 변경 개요의 중요성
-            actions = entry.get('actions', '')  # I열 실무 적용 제언
-            
-            # 제목 설정
-            subject = f"[YTONE_Intelligence] {sheet_name} 신규 콘텐츠: {title}"
-            
-            # 콘텐츠 부분을 정리하고 불릿 포인트에 줄바꿈 적용
-            content_formatted = ""
-            if content:
-                # 콘텐츠를 줄바꿈 기준으로 나누기
-                paragraphs = content.split('\n')
-                for paragraph in paragraphs:
-                    paragraph = paragraph.strip()
-                    if paragraph:
-                        # '[주요 변경사항]', '[작품 예시]' 등의 섹션 제목은 그대로 유지
-                        if paragraph.startswith('[') and paragraph.endswith(']'):
-                            content_formatted += f"<p style='font-weight: bold; margin-top: 15px;'>{paragraph}</p>\n"
-                        # 불릿 포인트(•)가 있는 경우 줄바꿈 처리
-                        elif '•' in paragraph:
-                            # 불릿 포인트를 기준으로 분리
-                            parts = paragraph.split('•')
-                            # 첫 부분은 보통 빈 문자열이거나 타이틀 등이 있을 수 있음
-                            if parts[0].strip():
-                                content_formatted += f"<p>{parts[0].strip()}</p>\n"
-                            
-                            # 각 불릿 포인트를 별도 라인으로 처리
-                            for part in parts[1:]:
-                                if part.strip():
-                                    content_formatted += f"<p style='margin-left: 15px;'>• {part.strip()}</p>\n"
-                        else:
-                            content_formatted += f"<p>{paragraph}</p>\n"
-            
-            # 요약 부분도 불릿 포인트 처리
-            summary_formatted = ""
-            if summary:
-                # 요약을 줄바꿈 기준으로 나누기
-                summary_lines = summary.split('\n')
-                for line in summary_lines:
-                    line = line.strip()
-                    if line:
-                        # 불릿 포인트(•)가 있는 경우 줄바꿈 처리
-                        if '•' in line:
-                            # 불릿 포인트를 기준으로 분리
-                            parts = line.split('•')
-                            # 첫 부분은 보통 빈 문자열이거나 타이틀 등이 있을 수 있음
-                            if parts[0].strip():
-                                summary_formatted += f"<p>{parts[0].strip()}</p>\n"
-                            
-                            # 각 불릿 포인트를 별도 라인으로 처리
-                            for part in parts[1:]:
-                                if part.strip():
-                                    summary_formatted += f"<p style='margin: 8px 0; margin-left: 15px;'>• {part.strip()}</p>\n"
-                        else:
-                            summary_formatted += f"<p>{line}</p>\n"
-            
-            # 추가: 30년차 조언, 변경 개요의 중요성, 실무 적용 제언에 대한 포맷팅
-            expert_advice_formatted = ""
-            if expert_advice:
-                expert_advice_lines = expert_advice.split('\n')
-                for line in expert_advice_lines:
-                    line = line.strip()
-                    if line:
-                        if '•' in line:
-                            parts = line.split('•')
-                            if parts[0].strip():
-                                expert_advice_formatted += f"<p>{parts[0].strip()}</p>\n"
-                            for part in parts[1:]:
-                                if part.strip():
-                                    expert_advice_formatted += f"<p style='margin: 8px 0; margin-left: 15px;'>• {part.strip()}</p>\n"
-                        else:
-                            expert_advice_formatted += f"<p>{line}</p>\n"
-            
-            importance_formatted = ""
-            if importance:
-                importance_lines = importance.split('\n')
-                for line in importance_lines:
-                    line = line.strip()
-                    if line:
-                        if '•' in line:
-                            parts = line.split('•')
-                            if parts[0].strip():
-                                importance_formatted += f"<p>{parts[0].strip()}</p>\n"
-                            for part in parts[1:]:
-                                if part.strip():
-                                    importance_formatted += f"<p style='margin: 8px 0; margin-left: 15px;'>• {part.strip()}</p>\n"
-                        else:
-                            importance_formatted += f"<p>{line}</p>\n"
-            
-            # 수정된 HTML 템플릿 - 최대 넓이 630px 및 중앙 정렬 추가
-            html_content = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>{subject}</title>
-            </head>
-            <body style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5; color: #333333; margin: 0; padding: 0; background-color: #f7f7f7;">
-                <!-- 이메일 전체 컨테이너 - 최대 넓이 630px 및 중앙 정렬 -->
-                <div style="max-width: 630px; margin: 0 auto; background-color: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                    
-                    <!-- 본문 내용 -->
-                    <div style="padding: 20px;">
-                        <div style="margin-bottom: 15px;">
-                            <img src="https://ytonepd.mycafe24.com/img/mailtop.jpg" style="width: 100%">
-                        </div>
-                        
-                        <h1 style="font-size: 22px; margin-bottom: 20px;">{sheet_name} 신규 콘텐츠 안내</h1>
-                        
-                        <p>안녕하세요. YTONE_Intelligence입니다.</p>
-                        <p>최신 마케팅 콘텐츠를 받고 사용해주시는 와이토너님께 진심으로 감사드립니다.</p>
-                        <p>{sheet_name}에서 새로운 콘텐츠가 등록되어 안내드립니다.</p>
-                        
-                        <div style="margin: 20px 0;">
-                            <div style="font-weight: bold;">콘텐츠 제목</div>
-                            <div style="margin-bottom: 10px;">{title}</div>
-                            
-                            <div style="font-weight: bold;">작성일</div>
-                            <div style="margin-bottom: 10px;">{date_str}</div>
-                            
-                            <div style="font-weight: bold;">카테고리</div>
-                            <div style="margin-bottom: 10px;">{category}</div>
-                        </div>
-                        
-                        <!-- 콘텐츠 요약 - 불릿 포인트 개선 적용 -->
-                        <div style="background-color: #f9f9f9; padding: 15px; margin: 15px 0; border-radius: 4px;">
-                            <div style="font-weight: bold; margin-bottom: 10px;">AI가 요약한 내용</div>
-                            <div style="line-height: 1.7;">
-                                {summary_formatted if summary_formatted else summary}
-                            </div>
-                        </div>
-                        
-                        <!-- G열: 30년차 조언 -->
-                        {f'''
-                        <div style="background-color: #f3e5f5; padding: 15px; margin: 15px 0; border-radius: 4px; border-left: 3px solid #8e44ad;">
-                            <div style="font-weight: bold; margin-bottom: 10px;">와이토너를 위한 제안</div>
-                            <div style="line-height: 1.7;">
-                                {expert_advice_formatted if expert_advice_formatted else expert_advice}
-                            </div>
-                        </div>
-                        ''' if expert_advice else ''}
-                        
-                        <!-- H열: 변경 개요의 중요성 -->
-                        {f'''
-                        <div style="background-color: #e3f2fd; padding: 15px; margin: 15px 0; border-radius: 4px; border-left: 3px solid #3498db;">
-                            <div style="font-weight: bold; margin-bottom: 10px;">변경 개요의 중요성</div>
-                            <div style="line-height: 1.7;">
-                                {importance_formatted if importance_formatted else importance}
-                            </div>
-                        </div>
-                        ''' if importance else ''}
-                        
-                        <!-- 접근 방법 -->
-                        <div style="margin-top: 20px; padding-top: 15px; border-top: 1px dashed #eeeeee;">
-                            <div style="font-weight: bold; margin-bottom: 10px;">자세한 내용 살펴보기</div>
-                            <div style="margin-bottom: 5px;"><a href="{link}" style="color: #0078ff;">여기</a>에서 원문 확인이 가능합니다.</div>
-                            <div style="margin-bottom: 5px;">YTONE_Intelligence 홈페이지: <a href="https://ytoneintelligence.co.kr/" style="color: #0078ff;">https://ytoneintelligence.co.kr/</a>에서도 전체 콘텐츠를 확인하실 수 있습니다.</div>
-                        </div>
-                        
-                        <p>앞으로도 YTONE_Intelligence는 와이토너님들께 더욱 다양한 정보를 제공하기 위해 노력하겠습니다. 감사합니다.</p>
-                        
-                        <!-- 푸터 -->
-                        <div style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #eeeeee; color: #666666; font-size: 12px;">
-                            <div style="font-weight: bold; margin-bottom: 10px;">YTONE_Intelligence</div>
-                            <div style="margin-bottom: 10px;"> 문의사항이 있으실 경우, <a href="mailto:th.yoon@y-tone.co.kr" style="color: #0078ff;">th.yoon@y-tone.co.kr</a>로 남겨주시기 바랍니다.</div>
-                            <div>copyright © 와이톤 All rights reserved.</div>
-                            <div>(주)와이톤 | 서울특별시 강남구 선릉로 131길 9, 하나빌딩 3층 & 10층</div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- 하단 여백 -->
-                <div style="height: 20px;"></div>
-            </body>
-            </html>
-            """
-            
-            # 이메일 전송
-            success = send_email(subject, html_content, 'business@y-tone.co.kr, th.yoon@y-tone.co.kr, korea@y-tone.co.kr, design@y-tone.co.kr, production@y-tone.co.kr')
-            if success:
-                log_message(f"'{title}' 이메일 전송 성공")
-            else:
-                log_message(f"'{title}' 이메일 전송 실패")
-
-    # 현재 데이터를 저장하여 다음 실행 시 비교
-    save_current_data_to_sheet(current_data)
-    
-    log_message("새로운 항목 확인 완료")
-
-def list_sheets():
-    # Google Sheets API 설정
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name('/Users/mmmo/Desktop/YOONKIJWALJWAL/Front/MaketingA/naver-452205-a733573ea425.json', scope)
-    client = gspread.authorize(creds)
-
-    # 스프레드시트 열기
-    spreadsheet = client.open("마케팅 공지사항")
-
-    # 모든 시트 이름 출력
-    sheet_names = [sheet.title for sheet in spreadsheet.worksheets()]
-    print("Available sheets:", sheet_names)
-
-def reset_previous_data():
-    """이전 데이터 기록을 초기화"""
-    try:
-        # 빈 리스트로 초기화
-        with open(previous_data_file, 'w') as file:
-            json.dump([], file)
-        log_message("이전 데이터 기록 초기화 완료")
-        return True
-    except Exception as e:
-        log_message(f"이전 데이터 초기화 실패: {str(e)}")
-        return False
+# Google Sheets 설정
+SPREADSHEET_ID = '1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg'
+SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads', 'Boss_pdf', 'Boss_pdf2', 'Global_Ads']
+# 30년차 조언이 필요한 시트 목록
+ADVICE_SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads']
+# 추가 의견이 필요한 시트 목록 - 빈 배열에서 필요한 시트로 변경
+ADDITIONAL_ADVICE_SHEET_NAMES = ['Naver_Ads', 'Google_Ads', 'Meta_Ads']
 
 def setup_google_sheets():
+    # 필요한 모든 스코프 추가
     scope = [
         'https://www.googleapis.com/auth/spreadsheets',
         'https://www.googleapis.com/auth/drive'
     ]
     
     try:
-        json_content = os.environ.get('GOOGLE_SHEETS_CREDENTIALS')
-        if not json_content:
-            raise ValueError("환경 변수 'GOOGLE_SHEETS_CREDENTIALS'가 설정되지 않았습니다.")
+        # 서비스 계정 JSON 파일 경로 설정
+        SERVICE_ACCOUNT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'naver-452205-a733573ea425.json')
         
-        creds_file = 'service_account.json'
-        with open(creds_file, 'w') as f:
-            f.write(json_content)
-
-        if os.path.exists(creds_file):
-            print(f"JSON 파일 생성 성공: {creds_file}")
-        else:
-            print(f"JSON 파일 생성 실패: {creds_file}")
-
-        creds = service_account.Credentials.from_service_account_file(
-            creds_file,
+        print(f"서비스 계정 파일 경로: {SERVICE_ACCOUNT_FILE}")
+        print("인증 시도 중...")
+        
+        credentials = service_account.Credentials.from_service_account_file(
+            SERVICE_ACCOUNT_FILE,
             scopes=scope
         )
         
-        gc = gspread.authorize(creds)
+        # gspread 클라이언트 생성
+        gc = gspread.authorize(credentials)
         print("gspread 인증 성공")
         
-        SPREADSHEET_ID = '1shWpyaGrQF00YKkmYGftL2IAEOgmZ8kjw2s-WKbdyGg'
-        spreadsheet = gc.open_by_key(SPREADSHEET_ID)
-        print("스프레드시트 열기 성공")
-        
-        sheet = spreadsheet.worksheet('Boss_pdf')
-        print("Boss_pdf 시트 열기 성공")
-        
-        return sheet
+        # 스프레드시트 열기
+        try:
+            spreadsheet = gc.open_by_key(SPREADSHEET_ID)
+            print("스프레드시트 열기 성공")
+            return spreadsheet
             
+        except gspread.exceptions.SpreadsheetNotFound:
+            print(f"스프레드시트를 찾을 수 없습니다. ID: {SPREADSHEET_ID}")
+            raise
+        except gspread.exceptions.APIError as e:
+            print(f"API 오류: {str(e)}")
+            raise
+            
+    except FileNotFoundError:
+        print(f"서비스 계정 키 파일을 찾을 수 없습니다: {SERVICE_ACCOUNT_FILE}")
+        raise
     except Exception as e:
         print(f"Google Sheets 설정 중 오류 발생: {str(e)}")
         raise
 
-if __name__ == "__main__":
-    log_message("메일 프로그램 시작")
+def summarize_text(text, max_length=200, sheet_name=None):
+    """OpenAI API를 사용하여 텍스트 요약"""
+    if not text or len(text) < 100:
+        return text
+    
     try:
-        # 테스트 모드는 주석을 해제해서 활성화할 수 있습니다
-        # reset_previous_data()
-        # log_message("보낸 기록을 초기화하고 모든 항목을 새 항목으로 간주합니다.")
+        client = OpenAI(api_key=api_key)
         
-        # 정상 실행
-        check_for_new_entries_and_notify()
-        log_message("메일 프로그램 정상 종료")
+        # Boss_pdf와 Boss_pdf2는 핵심 내용을 넘버링 형식으로 요약
+        if sheet_name in ['Boss_pdf', 'Boss_pdf2']:
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "너는 마케팅 자료와 광고 플랫폼 공지사항을 핵심 요약하는 전문가야. 다음 형식으로 정확히 요약해줘:\n\n1. [첫 번째 핵심 포인트]\n2. [두 번째 핵심 포인트]\n3. [세 번째 핵심 포인트]\n\n각 포인트는 간결하고 명확하게 작성하고, 전체 요약은 200자 이내로 제한해줘. 각 항목을 줄바꿈으로 구분해줘. 다른 설명이나 서식은 추가하지 마.\n\n중요: 내용이 부족하거나 없는 경우에는 해당 번호를 표시하지 마세요. 실질적인 내용이 있는 항목만 번호를 부여하세요. 예를 들어 2개 포인트만 있으면 1과 2만 사용하고, 1개만 있으면 1만 사용하세요."},
+                    {"role": "user", "content": f"다음 마케팅 자료의 핵심 내용을 넘버링 포인트로 요약해줘 (최대 3개):\n\n{text}"}
+                ],
+                max_tokens=200,
+                temperature=0.3,
+                presence_penalty=0.2,
+                frequency_penalty=0.2
+            )
+        else:
+            # 기존 로직 - 다른 시트들은 이전 요약 형식 유지
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "너는 마케팅 자료와 광고 플랫폼 공지사항을 요약하는 전문가야. 다음 형식으로 요약해줘: [주요 내용], [중요 정보], [활용 방안]. 모든 문장이 완전하게 끝나도록 하고, 중간에 잘리지 않게 해줘. 특히 마지막 문장이 자연스럽게 완결되어야 해."},
+                    {"role": "user", "content": f"다음 내용을 간결하게 요약해줘:\n\n{text}"}
+                ],
+                max_tokens=200,
+                temperature=0.3,
+                presence_penalty=0.2,
+                frequency_penalty=0.2
+            )
+        
+        summary = response.choices[0].message.content.strip()
+        
+        # 문장이 중간에 끊기지 않았는지 확인하고, 필요하면 마지막 문장을 제거
+        if summary and not summary.endswith(('.', '!', '?', '다.', '요.', '임.', '됨.')):
+            last_period_index = max(
+                summary.rfind('.'), 
+                summary.rfind('다.'), 
+                summary.rfind('요.'),
+                summary.rfind('임.'),
+                summary.rfind('됨.'),
+                summary.rfind('!'),
+                summary.rfind('?')
+            )
+            if last_period_index > 0:
+                summary = summary[:last_period_index+1]
+        
+        return summary
+    
     except Exception as e:
-        error_msg = f"메일 프로그램 오류 발생: {str(e)}"
-        log_message(error_msg)
-        
-        # 상세 오류 정보를 error_log 파일에 기록
+        print(f"요약 중 오류 발생: {str(e)}")
+        return "요약 생성 중 오류가 발생했습니다."
+
+def generate_expert_advice(content, summary=None):
+    """OpenAI API를 사용하여 30년차 디지털 마케터의 조언 생성"""
+    if not content:
+        return ""
+    
+    max_retries = 3
+    retry_delay = 2  # 초 단위
+    
+    for retry in range(max_retries):
         try:
-            with open(error_log_file, 'a') as f:
-                f.write(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]\n")
-                f.write(error_msg + "\n")
-                import traceback
-                f.write(traceback.format_exc())
-        except Exception as log_error:
-            print(f"오류 로그 작성 실패: {str(log_error)}")
+            client = OpenAI(api_key=api_key)
+            
+            # 원본 내용과 요약(있는 경우)을 합쳐서 조언 생성 요청
+            input_text = f"원본 내용:\n{content}\n"
+            if summary:
+                input_text += f"\n요약:\n{summary}\n"
+            
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": """당신은 30년 경력의 디지털 마케팅 전문가로서, 광고 플랫폼의 공지사항을 보고 현장 마케터들에게 실용적인 조언을 제공합니다.
+
+다음 공지사항에 대해 30년 경력의 전문가로서 조언해주세요:
+1. 이 변화/업데이트가 실제 마케팅 성과에 미칠 영향
+2. 이 변화를 활용할 수 있는 구체적인 전략적 조언
+3. 가능한 위험 요소와 대응 방안
+4. 장기적 관점에서의 인사이트
+
+조언은 평이한 말투보다는 경험에서 우러나오는 통찰력 있는 표현으로 작성해주세요.
+전체 조언은 300자 이내로 제한하고, 실무자가 바로 활용할 수 있는 구체적인 내용으로 작성해주세요.
+모든 문장이 완전하게 끝나도록 하고, 중간에 잘리지 않게 해주세요."""},
+                    {"role": "user", "content": input_text}
+                ],
+                max_tokens=300,
+                temperature=0.7
+            )
+            
+            advice = response.choices[0].message.content.strip()
+            
+            # 문장이 중간에 끊기지 않았는지 확인
+            if advice and not advice.endswith(('.', '!', '?', '다.', '요.', '임.', '됨.')):
+                last_period_index = max(
+                    advice.rfind('.'), 
+                    advice.rfind('다.'), 
+                    advice.rfind('요.'),
+                    advice.rfind('임.'),
+                    advice.rfind('됨.'),
+                    advice.rfind('!'),
+                    advice.rfind('?')
+                )
+                if last_period_index > 0:
+                    advice = advice[:last_period_index+1]
+            
+            return advice
+            
+        except Exception as e:
+            error_msg = f"조언 생성 중 오류 발생 (시도 {retry+1}/{max_retries}): {str(e)}"
+            print(error_msg)
+            logging.error(error_msg)
+            
+            if retry < max_retries - 1:
+                # 마지막 시도가 아니면 대기 후 재시도
+                print(f"{retry_delay}초 후 재시도...")
+                time.sleep(retry_delay)
+                # 다음 재시도에서 대기 시간 증가 (지수 백오프)
+                retry_delay *= 2
+            else:
+                # 모든 재시도 실패 시
+                print("최대 재시도 횟수 초과, 조언 생성 실패")
+                return "조언 생성 중 오류가 발생했습니다."
+    
+    # 이 코드는 실행되지 않지만, 구문 오류 방지를 위해 추가
+    return "조언 생성 중 오류가 발생했습니다."
+
+def generate_importance_and_actions(content, summary=None):
+    """OpenAI API를 사용하여 변경 개요의 중요성과 실무 적용 제언 생성"""
+    if not content:
+        return "", ""
+    
+    max_retries = 3
+    retry_delay = 2  # 초 단위
+    
+    for retry in range(max_retries):
+        try:
+            client = OpenAI(api_key=api_key)
+            
+            # 원본 내용과 요약(있는 경우)을 합쳐서 조언 생성 요청
+            input_text = f"원본 내용:\n{content}\n"
+            if summary:
+                input_text += f"\n요약:\n{summary}\n"
+            
+            # 변경 개요의 중요성 생성
+            importance_response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": """당신은 디지털 마케팅과 광고 플랫폼에 대한 전문가입니다. 
+광고 플랫폼의 변경사항이나 공지사항을 보고 해당 변경이 왜 중요한지 명확하게 설명해주세요.
+
+다음 내용에 대해 '본 공지(변경사항)이 왜 중요한가?'라는 질문에 답변해주세요:
+- 이 변경이 마케터/광고주에게 미치는 영향을 구체적으로 설명
+- 이 변경의 잠재적인 긍정적/부정적 측면을 실무적 관점에서 설명
+- 무시할 경우 발생할 수 있는 구체적인 결과나 리스크
+
+답변 작성 시 엄격한 제한사항:
+1. 절대로 날짜나 시간 관련 표현을 사용하지 마세요 (예: '6월 26일', '2025년', '다음 달', '이번 주' 등)
+2. 시간 표현 대신 '현재', '즉시', '지속적으로' 등의 표현을 사용하세요
+3. 변경사항의 본질적 중요성과 실무적 영향에만 집중하세요
+4. 구체적이고 실용적인 관점에서 설명하되, 시간 관련 정보는 완전히 제외하세요
+5. "~해야 합니다", "~이 중요합니다"와 같은 일반적인 표현 대신 구체적인 영향과 결과를 설명하세요
+
+답변은 명확하고 간결하게 작성하되, 실무자가 이해하기 쉽도록 작성해주세요.
+전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요."""},
+                    {"role": "user", "content": input_text}
+                ],
+                max_tokens=200,
+                temperature=0.5
+            )
+            
+            # 실무 적용 제언 생성
+            actions_response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": """당신은 디지털 마케팅과 광고 플랫폼에 대한 전문가입니다.
+광고 플랫폼의 변경사항이나 공지사항을 보고 마케터가 지금 당장 취해야 할 행동을 제안해주세요.
+
+다음 내용에 대해 '마케터가 지금 해야 할 일'을 구체적으로 제안해주세요:
+- 실무에 바로 적용할 수 있는 명확한 행동 단계
+- 우선순위와 함께 제시된 구체적인 액션 아이템
+- 실행 가능한 체크리스트 형태의 조언
+
+답변은 행동 지향적으로 작성하고, 실무자가 바로 실행할 수 있도록 구체적으로 작성해주세요.
+전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요.
+
+중요: 답변에 날짜(예: 5월 22일, 2024년 등)를 포함하지 마세요. 시간적 표현 대신 즉시 실행 가능한 행동에 집중해주세요."""},
+                    {"role": "user", "content": input_text}
+                ],
+                max_tokens=200,
+                temperature=0.5
+            )
+            
+            importance = importance_response.choices[0].message.content.strip()
+            actions = actions_response.choices[0].message.content.strip()
+            
+            # 문장이 중간에 끊기지 않았는지 확인
+            for text in [importance, actions]:
+                if text and not text.endswith(('.', '!', '?', '다.', '요.', '임.', '됨.')):
+                    last_period_index = max(
+                        text.rfind('.'), 
+                        text.rfind('다.'), 
+                        text.rfind('요.'),
+                        text.rfind('임.'),
+                        text.rfind('됨.'),
+                        text.rfind('!'),
+                        text.rfind('?')
+                    )
+                    if last_period_index > 0:
+                        if text == importance:
+                            importance = text[:last_period_index+1]
+                        else:
+                            actions = text[:last_period_index+1]
+            
+            # 성공적으로 생성된 경우
+            return importance, actions
+            
+        except Exception as e:
+            error_msg = f"추가 의견 생성 중 오류 발생 (시도 {retry+1}/{max_retries}): {str(e)}"
+            print(error_msg)
+            logging.error(error_msg)
+            
+            if retry < max_retries - 1:
+                # 마지막 시도가 아니면 대기 후 재시도
+                print(f"{retry_delay}초 후 재시도...")
+                time.sleep(retry_delay)
+                # 다음 재시도에서 대기 시간 증가 (지수 백오프)
+                retry_delay *= 2
+            else:
+                # 모든 재시도 실패 시
+                print("최대 재시도 횟수 초과, 의견 생성 실패")
+                return "의견 생성 중 오류가 발생했습니다.", "의견 생성 중 오류가 발생했습니다."
+    
+    # 이 코드는 실행되지 않지만, 구문 오류 방지를 위해 추가
+    return "의견 생성 중 오류가 발생했습니다.", "의견 생성 중 오류가 발생했습니다."
+
+def setup_advice_column(sheet):
+    """'30년차' 열 설정"""
+    try:
+        # 헤더 가져오기
+        headers = sheet.row_values(1)
         
-        # 프로그램 종료 코드 1로 설정하여 오류 상태 표시
-        sys.exit(1)
+        # G열에 '30년차' 헤더가 없는 경우 추가
+        if len(headers) < 7 or headers[6] != '30년차':
+            print(f"{sheet.title} 시트에 '30년차' 열 추가 중...")
+            sheet.update_cell(1, 7, '30년차')
+            print(f"{sheet.title} 시트에 '30년차' 열 추가 완료")
+        else:
+            print(f"{sheet.title} 시트에는 이미 '30년차' 열이 있습니다.")
+    
+    except Exception as e:
+        print(f"{sheet.title} 시트의 '30년차' 열 설정 중 오류 발생: {str(e)}")
+
+def setup_additional_columns(sheet):
+    """G열과 H열 사이에 신규 열 2개 추가"""
+    try:
+        print(f"{sheet.title} 시트에 신규 열 설정 중...")
+        logging.info(f"{sheet.title} 시트에 신규 열 설정 시작")
+        
+        # 헤더 가져오기
+        headers = sheet.row_values(1)
+        print(f"현재 {sheet.title} 시트 헤더: {headers}")
+        
+        # 새로운 열 이름
+        new_columns = ["변경 개요의 중요성", "실무 적용 제언"]
+        
+        if len(headers) < 1:
+            # 헤더가 없는 경우 기본 헤더 추가
+            print(f"{sheet.title} 시트에 헤더가 없습니다. 기본 헤더 추가...")
+            default_headers = ['제목', '구분', '작성일', '링크', '출처', '내용', '요약', '30년차', '변경 개요의 중요성', '실무 적용 제언']
+            sheet.update('A1:J1', [default_headers])
+            logging.info(f"{sheet.title} 시트에 기본 헤더 추가 완료")
+            return
+        
+        # 필요한 열이 없는지 확인
+        missing_columns = []
+        
+        # "30년차" 열이 없는지 확인
+        if len(headers) < 7 or headers[6] != '30년차':
+            missing_columns.append('30년차')
+            
+        # "변경 개요의 중요성" 열이 없는지 확인
+        if len(headers) < 8 or headers[7] != "변경 개요의 중요성":
+            missing_columns.append('변경 개요의 중요성')
+            
+        # "실무 적용 제언" 열이 없는지 확인
+        if len(headers) < 9 or headers[8] != "실무 적용 제언":
+            missing_columns.append('실무 적용 제언')
+        
+        if not missing_columns:
+            print(f"{sheet.title} 시트에는 이미 필요한 모든 열이 있습니다.")
+            return
+        
+        print(f"{sheet.title} 시트에 누락된 열: {missing_columns}")
+        
+        # 모든 데이터 가져오기
+        all_data = sheet.get_all_values()
+        
+        # '30년차' 열 설정 (없는 경우)
+        # 7번 열이 '30년차'가 아니면 '30년차' 열 추가
+        if '30년차' in missing_columns:
+            print(f"{sheet.title} 시트에 '30년차' 열 추가 중...")
+            # 변경된 모든 행
+            updated_rows = []
+            
+            # 첫 번째 행(헤더) 처리
+            if len(all_data) > 0:
+                header_row = all_data[0]
+                while len(header_row) < 7:  # 최소 7열 (G열) 확보
+                    header_row.append("")
+                # 7번째 열(G열)을 '30년차'로 설정
+                header_row[6] = '30년차'  
+                updated_rows.append(header_row)
+                
+                # 나머지 데이터 행 처리
+                for i in range(1, len(all_data)):
+                    data_row = all_data[i]
+                    while len(data_row) < 7:  # 최소 7열 확보
+                        data_row.append("")
+                    updated_rows.append(data_row)
+                
+                # 스프레드시트 업데이트
+                sheet.update(f'A1:{chr(65+len(header_row)-1)}{len(updated_rows)}', updated_rows)
+                print(f"{sheet.title} 시트에 '30년차' 열 추가 완료")
+                
+                # 업데이트된 헤더 다시 가져오기
+                headers = sheet.row_values(1)
+                all_data = updated_rows
+        
+        # "변경 개요의 중요성"과 "실무 적용 제언" 열 확인 및 추가
+        if "변경 개요의 중요성" in missing_columns or "실무 적용 제언" in missing_columns:
+            print(f"{sheet.title} 시트에 추가 의견 열 추가 중...")
+            
+            # 모든 행 가져오기 (이미 업데이트된 경우 이전에 가져온 데이터 사용)
+            all_rows = all_data
+            updated_rows = []
+            
+            for i, row in enumerate(all_rows):
+                new_row = row.copy()
+                
+                # 필요한 열이 확보되었는지 확인
+                while len(new_row) < 9:  # 최소 9열 (I열) 확보
+                    new_row.append("")
+                
+                # 첫 번째 행(헤더) 처리
+                if i == 0:
+                    # H열(8번째)에 "변경 개요의 중요성" 설정
+                    new_row[7] = "변경 개요의 중요성"
+                    # I열(9번째)에 "실무 적용 제언" 설정
+                    new_row[8] = "실무 적용 제언"
+                
+                updated_rows.append(new_row)
+            
+            # 스프레드시트 업데이트
+            max_col = chr(65 + max(len(row) for row in updated_rows) - 1)
+            sheet.update(f'A1:{max_col}{len(updated_rows)}', updated_rows)
+            print(f"{sheet.title} 시트에 추가 의견 열 추가 완료")
+            
+        # 최종 헤더 확인
+        final_headers = sheet.row_values(1)
+        print(f"최종 {sheet.title} 시트 헤더: {final_headers}")
+        
+        # 모든 열이 올바르게 설정되었는지 확인
+        if (len(final_headers) >= 9 and 
+            final_headers[6] == '30년차' and 
+            final_headers[7] == '변경 개요의 중요성' and 
+            final_headers[8] == '실무 적용 제언'):
+            print(f"{sheet.title} 시트 열 설정 완료: 모든 필요한 열이 정상적으로 설정되었습니다.")
+            logging.info(f"{sheet.title} 시트 열 설정 완료: 모든 필요한 열이 정상적으로 설정되었습니다.")
+        else:
+            error_msg = f"{sheet.title} 시트 열 설정 완료 후 검증 실패: {final_headers}"
+            print(error_msg)
+            logging.warning(error_msg)
+            
+    except Exception as e:
+        error_msg = f"{sheet.title} 시트의 신규 열 추가 중 오류 발생: {str(e)}"
+        print(error_msg)
+        logging.error(error_msg)
+
+def process_sheet(sheet):
+    """시트의 내용을 가져와서 요약이 필요한 항목 처리"""
+    print(f"{sheet.title} 시트 처리 중...")
+    
+    # 모든 데이터 가져오기
+    data = sheet.get_all_values()
+    
+    if len(data) <= 1:  # 헤더만 있는 경우
+        print(f"{sheet.title} 시트에 데이터가 없습니다.")
+        return 0
+    
+    # 헤더 제외한 데이터
+    rows = data[1:]
+    
+    # 요약 및 조언이 필요한 행 찾기
+    rows_to_update = []
+    
+    # Boss_pdf와 Boss_pdf2는 E열에 내용, F열에 요약(중요여부)
+    if sheet.title in ['Boss_pdf', 'Boss_pdf2']:
+        for i, row in enumerate(rows, start=2):  # 시트 인덱스는 1부터 시작, 헤더가 1행이므로 2부터
+            if len(row) >= 5 and row[4] and (len(row) < 6 or not row[5]):  # 내용은 있고 요약은 없는 경우
+                rows_to_update.append((i, row))
+    else:
+        # 기존 로직 - 다른 시트들은 이전 컬럼 구조 사용
+        for i, row in enumerate(rows, start=2):
+            if len(row) >= 6 and row[4] and not row[5]:  # 내용은 있고 요약은 없는 경우
+                rows_to_update.append((i, row))
+    
+    print(f"요약이 필요한 항목 수: {len(rows_to_update)}")
+    
+    # 요약 처리
+    updated_count = 0
+    for row_idx, row in rows_to_update:
+        try:
+            content = row[4]  # E열이 내용 열
+            print(f"'{row[0]}' 요약 중...")
+            
+            # 시트 이름을 함수에 전달하여 적절한 요약 형식 선택
+            summary = summarize_text(content, sheet_name=sheet.title)
+            
+            # 요약 결과 업데이트
+            sheet.update_cell(row_idx, 6, summary)  # 6번째 열(F열)이 요약 열
+            
+            # 30년차 디지털 마케터 조언 생성 (해당 시트만)
+            if sheet.title in ADVICE_SHEET_NAMES:
+                print(f"'{row[0]}' 조언 생성 중...")
+                advice = generate_expert_advice(content, summary)
+                sheet.update_cell(row_idx, 7, advice)  # 7번째 열(G열)이 30년차 조언 열
+                print(f"'{row[0]}' 조언 생성 완료")
+            
+            updated_count += 1
+            print(f"'{row[0]}' 요약 완료")
+            
+            # API 호출 제한 방지를 위한 대기
+            time.sleep(1)
+            
+        except Exception as e:
+            print(f"행 {row_idx} 처리 중 오류 발생: {str(e)}")
+    
+    return updated_count
+
+def generate_missing_advice(sheet):
+    """요약은 있지만 조언이 없는 항목에 대해 조언 생성"""
+    if sheet.title not in ADVICE_SHEET_NAMES:
+        return 0
+    
+    print(f"{sheet.title} 시트의 누락된 조언 처리 중...")
+    
+    # 모든 데이터 가져오기
+    data = sheet.get_all_values()
+    
+    if len(data) <= 1:  # 헤더만 있는 경우
+        return 0
+    
+    # 헤더 제외한 데이터
+    rows = data[1:]
+    
+    # 조언이 필요한 행 찾기 (요약은 있고 조언은 없는 경우)
+    rows_to_update = []
+    for i, row in enumerate(rows, start=2):
+        if len(row) >= 6 and row[5] and (len(row) < 7 or not row[6]):
+            rows_to_update.append((i, row))
+    
+    print(f"조언이 필요한 항목 수: {len(rows_to_update)}")
+    
+    # 조언 처리
+    updated_count = 0
+    for row_idx, row in rows_to_update:
+        try:
+            content = row[4]  # E열이 내용 열
+            summary = row[5]  # F열이 요약 열
+            print(f"'{row[0]}' 조언 생성 중...")
+            
+            # 30년차 디지털 마케터 조언 생성
+            advice = generate_expert_advice(content, summary)
+            sheet.update_cell(row_idx, 7, advice)  # 7번째 열(G열)이 30년차 조언 열
+            
+            updated_count += 1
+            print(f"'{row[0]}' 조언 생성 완료")
+            
+            # API 호출 제한 방지를 위한 대기
+            time.sleep(1)
+            
+        except Exception as e:
+            print(f"행 {row_idx} 조언 생성 중 오류 발생: {str(e)}")
+    
+    return updated_count
+
+def generate_missing_additional_advice(sheet):
+    """추가 의견이 필요한 항목에 대해 변경 개요의 중요성과 실무 적용 제언 생성"""
+    if sheet.title not in ADDITIONAL_ADVICE_SHEET_NAMES:
+        return 0
+    
+    print(f"{sheet.title} 시트의 누락된 추가 의견 처리 중...")
+    
+    # 모든 데이터 가져오기
+    data = sheet.get_all_values()
+    
+    if len(data) <= 1:  # 헤더만 있는 경우
+        return 0
+    
+    # 헤더 제외한 데이터
+    rows = data[1:]
+    
+    # 추가 의견이 필요한 행 찾기 (내용과 요약은 있지만 추가 의견이 없는 경우)
+    rows_to_update = []
+    for i, row in enumerate(rows, start=2):
+        if len(row) >= 6 and row[4] and row[5]:  # 내용과 요약이 있고
+            # H열 (변경 개요의 중요성)만 확인 - I열은 비활성화
+            need_importance = len(row) < 8 or not row[7]  # H열 (변경 개요의 중요성)이 없거나 비어있음
+            need_actions = False  # I열 (실무 적용 제언) 비활성화
+            
+            if need_importance:  # 중요성만 확인
+                rows_to_update.append((i, row, need_importance, need_actions))
+    
+    print(f"추가 의견이 필요한 항목 수: {len(rows_to_update)}")
+    
+    # 추가 의견 처리
+    updated_count = 0
+    for row_idx, row, need_importance, need_actions in rows_to_update:
+        try:
+            content = row[4]  # E열이 내용 열
+            summary = row[5]  # F열이 요약 열
+            print(f"'{row[0]}' 추가 의견 생성 중... (중요성: {need_importance}, 제언: {need_actions})")
+            
+            if need_importance:
+                # 중요성만 생성 (I열 실무 적용 제언은 비활성화)
+                importance, _ = generate_importance_and_actions(content, summary)
+                sheet.update_cell(row_idx, 8, importance)  # 8번째 열(H열)이 변경 개요의 중요성 열
+                print(f"'{row[0]}' 중요성만 생성 완료 (I열 제언은 비활성화됨)")
+            # elif need_actions 부분은 주석 처리 - I열 업데이트 비활성화
+            # elif need_actions:
+            #     # 제언만 필요한 경우
+            #     _, actions = generate_importance_and_actions(content, summary)
+            #     sheet.update_cell(row_idx, 9, actions)     # 9번째 열(I열)이 실무 적용 제언 열
+            
+            updated_count += 1
+            print(f"'{row[0]}' 추가 의견 생성 완료")
+            
+            # API 호출 제한 방지를 위한 대기
+            time.sleep(1)
+            
+        except Exception as e:
+            error_msg = f"행 {row_idx} 추가 의견 생성 중 오류 발생: {str(e)}"
+            print(error_msg)
+            logging.error(error_msg)
+            
+            # 오류 발생 시에도 개별 항목 재시도
+            try:
+                if need_importance:
+                    print(f"'{row[0]}' 중요성 항목 개별 재시도 중...")
+                    client = OpenAI(api_key=api_key)
+                    input_text = f"원본 내용:\n{content}\n"
+                    if summary:
+                        input_text += f"\n요약:\n{summary}\n"
+                    
+                    importance_response = client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=[
+                            {"role": "system", "content": """당신은 디지털 마케팅과 광고 플랫폼에 대한 전문가입니다. 
+광고 플랫폼의 변경사항이나 공지사항을 보고 해당 변경이 왜 중요한지 명확하게 설명해주세요.
+
+다음 내용에 대해 '본 공지(변경사항)이 왜 중요한가?'라는 질문에 답변해주세요:
+- 이 변경이 마케터/광고주에게 미치는 영향을 구체적으로 설명
+- 이 변경의 잠재적인 긍정적/부정적 측면을 실무적 관점에서 설명
+- 무시할 경우 발생할 수 있는 구체적인 결과나 리스크
+
+답변은 명확하고 간결하게 작성하되, 실무자가 이해하기 쉽도록 작성해주세요.
+전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요."""},
+                            {"role": "user", "content": input_text}
+                        ],
+                        max_tokens=200,
+                        temperature=0.5
+                    )
+                    importance = importance_response.choices[0].message.content.strip()
+                    sheet.update_cell(row_idx, 8, importance)
+                    print(f"'{row[0]}' 중요성 생성 완료 (재시도)")
+                    time.sleep(1)
+                
+                # I열 실무 적용 제언 생성 비활성화
+                # if need_actions:
+                #     print(f"'{row[0]}' 제언 항목 개별 재시도 중...")
+                #     client = OpenAI(api_key=api_key)
+                #     input_text = f"원본 내용:\n{content}\n"
+                #     if summary:
+                #         input_text += f"\n요약:\n{summary}\n"
+                #     
+                #     actions_response = client.chat.completions.create(
+                #         model="gpt-3.5-turbo",
+                #         messages=[
+                #             {"role": "system", "content": """당신은 디지털 마케팅과 광고 플랫폼에 대한 전문가입니다.
+                # 광고 플랫폼의 변경사항이나 공지사항을 보고 마케터가 지금 당장 취해야 할 행동을 제안해주세요.
+                # 
+                # 다음 내용에 대해 '마케터가 지금 해야 할 일'을 구체적으로 제안해주세요:
+                # - 실무에 바로 적용할 수 있는 명확한 행동 단계
+                # - 우선순위와 함께 제시된 구체적인 액션 아이템
+                # - 실행 가능한 체크리스트 형태의 조언
+                # 
+                # 답변은 행동 지향적으로 작성하고, 실무자가 바로 실행할 수 있도록 구체적으로 작성해주세요.
+                # 전체 내용은 200자 이내로 제한하고, 모든 문장이 완전하게 끝나도록 해주세요.
+                # 
+                # 중요: 답변에 날짜(예: 5월 22일, 2024년 등)를 포함하지 마세요. 시간적 표현 대신 즉시 실행 가능한 행동에 집중해주세요."""},
+                #             {"role": "user", "content": input_text}
+                #         ],
+                #         max_tokens=200,
+                #         temperature=0.5
+                #     )
+                #     actions = actions_response.choices[0].message.content.strip()
+                #     sheet.update_cell(row_idx, 9, actions)
+                #     print(f"'{row[0]}' 제언 생성 완료 (재시도)")
+                #     time.sleep(1)
+            
+            except Exception as retry_error:
+                retry_error_msg = f"행 {row_idx} 추가 의견 개별 재시도 중 오류 발생: {str(retry_error)}"
+                print(retry_error_msg)
+                logging.error(retry_error_msg)
+    
+    return updated_count
+
+def summarize_chinese(text):
+    """OpenAI API를 사용하여 텍스트를 중국어로 요약"""
+    if not text:
+        return ""
+    
+    max_retries = 3
+    retry_delay = 2  # 초 단위
+    
+    for retry in range(max_retries):
+        try:
+            client = OpenAI(api_key=api_key)
+            
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "你是一位专业的数字营销专家。请用简洁的中文总结以下内容的要点，重点关注对营销人员有价值的信息。总结应当专业、准确，并保持在200字以内。"},
+                    {"role": "user", "content": f"请总结以下内容：\n\n{text}"}
+                ],
+                max_tokens=300,
+                temperature=0.3
+            )
+            
+            summary = response.choices[0].message.content.strip()
+            return summary
+            
+        except Exception as e:
+            error_msg = f"중국어 요약 중 오류 발생 (시도 {retry+1}/{max_retries}): {str(e)}"
+            print(error_msg)
+            logging.error(error_msg)
+            
+            if retry < max_retries - 1:
+                print(f"{retry_delay}초 후 재시도...")
+                time.sleep(retry_delay)
+                retry_delay *= 2
+            else:
+                print("최대 재시도 횟수 초과, 중국어 요약 실패")
+                return "요약 중 오류가 발생했습니다."
+    
+    return "요약 중 오류가 발생했습니다."
+
+def summarize_korean(text):
+    """OpenAI API를 사용하여 한국어 텍스트를 요약"""
+    if not text:
+        return ""
+    
+    max_retries = 3
+    retry_delay = 2  # 초 단위
+    
+    for retry in range(max_retries):
+        try:
+            client = OpenAI(api_key=api_key)
+            
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": """당신은 디지털 마케팅 전문가입니다. 
+다음 내용을 마케터의 관점에서 핵심만 간단히 요약해주세요.
+
+요약 시 다음 사항을 준수해주세요:
+1. 마케팅 실무자가 즉시 이해할 수 있도록 전문적인 용어를 적절히 사용
+2. 실무적으로 중요한 변경사항이나 영향을 우선적으로 포함
+3. 불필요한 설명이나 부연은 제외하고 핵심 정보만 전달
+4. 전체 요약은 200자 이내로 제한"""},
+                    {"role": "user", "content": f"다음 내용을 요약해주세요:\n\n{text}"}
+                ],
+                max_tokens=300,
+                temperature=0.3
+            )
+            
+            summary = response.choices[0].message.content.strip()
+            return summary
+            
+        except Exception as e:
+            error_msg = f"한국어 요약 중 오류 발생 (시도 {retry+1}/{max_retries}): {str(e)}"
+            print(error_msg)
+            logging.error(error_msg)
+            
+            if retry < max_retries - 1:
+                print(f"{retry_delay}초 후 재시도...")
+                time.sleep(retry_delay)
+                retry_delay *= 2
+            else:
+                print("최대 재시도 횟수 초과, 한국어 요약 실패")
+                return "요약 중 오류가 발생했습니다."
+    
+    return "요약 중 오류가 발생했습니다."
+
+def translate_to_korean(text):
+    """OpenAI API를 사용하여 텍스트를 한글로 번역"""
+    if not text:
+        return ""
+    
+    max_retries = 3
+    retry_delay = 2  # 초 단위
+    
+    for retry in range(max_retries):
+        try:
+            client = OpenAI(api_key=api_key)
+            
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": """당신은 디지털 마케팅 분야의 전문 번역가입니다. 
+주어진 텍스트를 한국어로 번역해주되, 다음 사항을 준수해주세요:
+
+1. 마케팅 전문 용어는 업계에서 통용되는 정확한 한국어 용어로 번역
+2. 광고 플랫폼의 기능이나 정책 관련 내용은 실무자가 이해하기 쉽게 자연스럽게 번역
+3. 기술적인 용어나 고유명사는 필요한 경우 원어를 괄호로 병기
+4. 문맥을 고려하여 의미가 정확하게 전달되도록 의역이 필요한 경우 적절히 의역
+5. 번역된 문장이 자연스러운 한국어 문장이 되도록 신경써서 번역"""},
+                    {"role": "user", "content": f"다음 텍스트를 한국어로 번역해주세요:\n\n{text}"}
+                ],
+                max_tokens=1000,
+                temperature=0.3
+            )
+            
+            translation = response.choices[0].message.content.strip()
+            return translation
+            
+        except Exception as e:
+            error_msg = f"번역 중 오류 발생 (시도 {retry+1}/{max_retries}): {str(e)}"
+            print(error_msg)
+            logging.error(error_msg)
+            
+            if retry < max_retries - 1:
+                print(f"{retry_delay}초 후 재시도...")
+                time.sleep(retry_delay)
+                retry_delay *= 2
+            else:
+                print("최대 재시도 횟수 초과, 번역 실패")
+                return "번역 중 오류가 발생했습니다."
+    
+    return "번역 중 오류가 발생했습니다."
+
+def process_translations(sheet):
+    """시트의 E열 내용을 처리하여 F열(중문 요약), I열(한글 번역), J열(F열 중문요약의 한글 번역)에 저장"""
+    # Global_Ads 시트만 번역 처리
+    if sheet.title != 'Global_Ads':
+        return 0
+    
+    print(f"{sheet.title} 시트의 번역 및 요약 처리 중...")
+    
+    # 모든 데이터 가져오기
+    data = sheet.get_all_values()
+    
+    if len(data) <= 1:  # 헤더만 있는 경우
+        return 0
+    
+    # 헤더 확인 및 업데이트
+    headers = data[0]
+    if len(headers) < 10 or headers[9] != "중문요약 한글번역":
+        # J열 헤더 수정
+        sheet.update_cell(1, 10, "중문요약 한글번역")
+    
+    # 헤더 제외한 데이터
+    rows = data[1:]
+    
+    # 처리가 필요한 행 찾기
+    rows_to_update = []
+    for i, row in enumerate(rows, start=2):
+        # E열에 내용이 있고
+        if len(row) >= 5 and row[4]:
+            needs_update = False
+            # F열(중문 요약)이 비어있거나 에러 메시지인 경우
+            if len(row) < 6 or not row[5] or row[5].strip() == "요약 중 오류가 발생했습니다.":
+                needs_update = True
+            # I열(한글 번역)이 비어있거나 에러 메시지인 경우
+            if len(row) < 9 or not row[8] or row[8].strip() == "번역 중 오류가 발생했습니다.":
+                needs_update = True
+            # J열(중문요약 한글번역)이 비어있거나 에러 메시지인 경우
+            if len(row) < 10 or not row[9] or row[9].strip() == "번역 중 오류가 발생했습니다.":
+                needs_update = True
+            
+            if needs_update:
+                rows_to_update.append((i, row))
+    
+    print(f"처리가 필요한 항목 수: {len(rows_to_update)}")
+    
+    # 번역 및 요약 처리
+    updated_count = 0
+    for row_idx, row in rows_to_update:
+        try:
+            content = row[4]  # E열이 내용 열
+            print(f"'{row[0]}' 처리 중...")
+            
+            # 중문 요약 (F열)
+            chinese_summary = summarize_chinese(content)
+            if chinese_summary != "요약 중 오류가 발생했습니다.":
+                sheet.update_cell(row_idx, 6, chinese_summary)
+                print(f"'{row[0]}' 중문 요약 완료")
+            
+            # 한글 번역 (I열)
+            korean_translation = translate_to_korean(content)
+            if korean_translation != "번역 중 오류가 발생했습니다.":
+                sheet.update_cell(row_idx, 9, korean_translation)
+                print(f"'{row[0]}' 한글 번역 완료")
+            
+            # 중문 요약의 한글 번역 (J열) - F열의 중문 요약이 있는 경우에만 실행
+            if chinese_summary != "요약 중 오류가 발생했습니다.":
+                chinese_summary_korean = translate_to_korean(chinese_summary)
+                if chinese_summary_korean != "번역 중 오류가 발생했습니다.":
+                    sheet.update_cell(row_idx, 10, chinese_summary_korean)
+                    print(f"'{row[0]}' 중문 요약 한글 번역 완료")
+            
+            updated_count += 1
+            
+            # API 호출 제한 방지를 위한 대기
+            time.sleep(1)
+            
+        except Exception as e:
+            error_msg = f"행 {row_idx} 처리 중 오류 발생: {str(e)}"
+            print(error_msg)
+            logging.error(error_msg)
+    
+    return updated_count
+
+def run_summary():
+    """모든 시트에 대해 요약 처리 실행"""
+    try:
+        start_time = datetime.now()
+        print("요약 프로그램 시작:", start_time.strftime("%Y-%m-%d %H:%M:%S"))
+        logging.info("요약 프로그램 시작: %s", start_time.strftime("%Y-%m-%d %H:%M:%S"))
+        
+        # Google Sheets 연결
+        spreadsheet = setup_google_sheets()
+        
+        total_updated = 0
+        total_advice = 0
+        total_additional_advice = 0
+        total_translations = 0
+        
+        # 시트별 처리 통계
+        sheet_stats = {}
+        
+        # 각 시트 처리
+        for sheet_name in SHEET_NAMES:
+            try:
+                print(f"\n==== {sheet_name} 시트 처리 시작 ====")
+                logging.info(f"{sheet_name} 시트 처리 시작")
+                
+                sheet = spreadsheet.worksheet(sheet_name)
+                
+                # 시트별 통계 초기화
+                sheet_stats[sheet_name] = {
+                    'updated': 0,
+                    'advice_updated': 0,
+                    'additional_advice_updated': 0,
+                    'translations_updated': 0,
+                    'errors': 0
+                }
+                
+                # 30년차 조언이 필요한 시트에 '30년차' 열 설정
+                if sheet_name in ADVICE_SHEET_NAMES:
+                    setup_advice_column(sheet)
+                
+                # 추가 의견이 필요한 시트에 신규 열 설정
+                if sheet_name in ADDITIONAL_ADVICE_SHEET_NAMES:
+                    setup_additional_columns(sheet)
+                
+                # 요약 및 조언 처리
+                updated = process_sheet(sheet)
+                total_updated += updated
+                sheet_stats[sheet_name]['updated'] = updated
+                
+                # 누락된 조언 처리 (요약은 있지만 조언이 없는 항목)
+                if sheet_name in ADVICE_SHEET_NAMES:
+                    advice_updated = generate_missing_advice(sheet)
+                    total_advice += advice_updated
+                    sheet_stats[sheet_name]['advice_updated'] = advice_updated
+                    print(f"{sheet_name} 시트 조언 처리 완료: {advice_updated}개 항목에 조언 추가됨")
+                    logging.info(f"{sheet_name} 시트 조언 처리 완료: {advice_updated}개 항목에 조언 추가됨")
+                
+                # 누락된 추가 의견 처리
+                if sheet_name in ADDITIONAL_ADVICE_SHEET_NAMES:
+                    additional_advice_updated = generate_missing_additional_advice(sheet)
+                    total_additional_advice += additional_advice_updated
+                    sheet_stats[sheet_name]['additional_advice_updated'] = additional_advice_updated
+                    print(f"{sheet_name} 시트 추가 의견 처리 완료: {additional_advice_updated}개 항목에 추가 의견 생성됨")
+                    logging.info(f"{sheet_name} 시트 추가 의견 처리 완료: {additional_advice_updated}개 항목에 추가 의견 생성됨")
+                
+                # 번역 처리
+                translations_updated = process_translations(sheet)
+                total_translations += translations_updated
+                sheet_stats[sheet_name]['translations_updated'] = translations_updated
+                print(f"{sheet_name} 시트 번역 처리 완료: {translations_updated}개 항목 번역됨")
+                logging.info(f"{sheet_name} 시트 번역 처리 완료: {translations_updated}개 항목 번역됨")
+                
+                # 누락된 열 확인 (중요성만 - I열 제언은 비활성화)
+                if sheet_name in ADDITIONAL_ADVICE_SHEET_NAMES:
+                    all_data = sheet.get_all_values()
+                    if len(all_data) > 1:  # 헤더 제외
+                        rows = all_data[1:]
+                        missing_importance = 0
+                        missing_translations = 0
+                        
+                        for row in rows:
+                            if len(row) >= 5 and row[4]:  # 내용이 있을 때
+                                if len(row) < 8 or not row[7]:  # 중요성 누락
+                                    missing_importance += 1
+                                if len(row) < 9 or not row[8]:  # 번역 누락
+                                    missing_translations += 1
+                        
+                        if missing_importance > 0 or missing_translations > 0:
+                            print(f"{sheet_name} 시트 완료 후 확인: 중요성 누락 {missing_importance}개, 번역 누락 {missing_translations}개")
+                            logging.warning(f"{sheet_name} 시트 완료 후 확인: 중요성 누락 {missing_importance}개, 번역 누락 {missing_translations}개")
+                
+                print(f"==== {sheet_name} 시트 처리 완료: {updated}개 항목 요약됨 ====\n")
+                logging.info(f"{sheet_name} 시트 처리 완료: {updated}개 항목 요약됨")
+                
+            except Exception as e:
+                error_msg = f"{sheet_name} 시트 처리 중 오류 발생: {str(e)}"
+                print(error_msg)
+                logging.error(error_msg)
+                if sheet_name in sheet_stats:
+                    sheet_stats[sheet_name]['errors'] += 1
+        
+        # 종합 결과 출력
+        print("\n========== 종합 처리 결과 ==========")
+        for sheet_name, stats in sheet_stats.items():
+            print(f"{sheet_name} 시트:")
+            print(f"  - 요약 처리: {stats['updated']}개")
+            if sheet_name in ADVICE_SHEET_NAMES:
+                print(f"  - 조언 생성: {stats['advice_updated']}개")
+            if sheet_name in ADDITIONAL_ADVICE_SHEET_NAMES:
+                print(f"  - 추가 의견 생성: {stats['additional_advice_updated']}개")
+            print(f"  - 번역 처리: {stats['translations_updated']}개")
+            print(f"  - 오류 발생: {stats['errors']}개")
+            print("")
+        
+        print(f"총 {total_updated}개 항목 요약 완료, {total_advice}개 항목에 조언 추가 완료, {total_additional_advice}개 항목에 추가 의견 생성 완료, {total_translations}개 항목 번역 완료")
+        logging.info(f"총 {total_updated}개 항목 요약 완료, {total_advice}개 항목에 조언 추가 완료, {total_additional_advice}개 항목에 추가 의견 생성 완료, {total_translations}개 항목 번역 완료")
+        
+        end_time = datetime.now()
+        duration = end_time - start_time
+        print(f"총 소요 시간: {duration}")
+        logging.info(f"총 소요 시간: {duration}")
+        
+    except Exception as e:
+        error_msg = f"요약 프로그램 실행 중 오류 발생: {str(e)}"
+        print(error_msg)
+        logging.error(error_msg)
+        raise
+    finally:
+        print("요약 프로그램 종료:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        logging.info("요약 프로그램 종료: %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+if __name__ == "__main__":
+    try:
+        logging.info("요약 프로그램 시작")
+        run_summary()
+        logging.info("요약 프로그램 완료")
+    except Exception as e:
+        error_msg = f"요약 프로그램 중 오류 발생: {str(e)}"
+        print(error_msg)
+        logging.error(error_msg)
+        # 에러 로그 기록
+        with open(error_log_file, 'a') as f:
+            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Error: {str(e)}\n")
