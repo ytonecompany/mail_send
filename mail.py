@@ -522,7 +522,7 @@ def check_for_new_entries_and_notify():
                         <h1 style="font-size: 22px; margin-bottom: 20px;">{sheet_name} [NAVER 광고] 신규 업데이트 사항 안내</h1>
                         
                         <p>YTONE_Intelligence에 NAVER 광고 관련 신규 업데이트 사항이 등록되었습니다.</p>
-                        <p>해당 내용을 아래 링크를 통해 확인할 수 있습니다.</p>
+                        <p>해당 내용을 '콘텐츠 확인' 버튼을 통해 확인할 수 있습니다.</p>
                         
                         <div style="margin: 20px 0;">
                             <div style="font-weight: bold;">콘텐츠 제목</div>
@@ -603,7 +603,7 @@ def check_for_new_entries_and_notify():
             """
             
             # 이메일 전송
-            success = send_email(subject, html_content, 'th.yoon@y-tone.co.kr, ')
+            success = send_email(subject, html_content, 'kangxiong@y-tone.co.kr, th.yoon@y-tone.co.kr')
             if success:
                 log_message(f"'{title}' 이메일 전송 성공")
             else:
