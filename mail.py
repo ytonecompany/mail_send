@@ -519,7 +519,7 @@ def check_for_new_entries_and_notify():
                             <img src="https://ytonepd.mycafe24.com/img/mailtop.jpg" style="width: 100%">
                         </div>
                         
-                        <h1 style="font-size: 22px; margin-bottom: 20px;">{sheet_name} [NAVER 광고] 신규 업데이트 사항 안내</h1>
+                        <h1 style="font-size: 22px; margin-bottom: 20px;">[NAVER 광고] 신규 업데이트 사항 안내</h1>
                         
                         <p>YTONE_Intelligence에 NAVER 광고 관련 신규 업데이트 사항이 등록되었습니다.</p>
                         <p>해당 내용을 '콘텐츠 확인' 버튼을 통해 확인할 수 있습니다.</p>
@@ -527,12 +527,6 @@ def check_for_new_entries_and_notify():
                         <div style="margin: 20px 0;">
                             <div style="font-weight: bold;">콘텐츠 제목</div>
                             <div style="margin-bottom: 10px;">{title}</div>
-                            
-                            <div style="font-weight: bold;">작성일</div>
-                            <div style="margin-bottom: 10px;">{date_str}</div>
-                            
-                            <div style="font-weight: bold;">카테고리</div>
-                            <div style="margin-bottom: 10px;">{category}</div>
                         </div>
 
                         <!-- CTA 버튼 -->
