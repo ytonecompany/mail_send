@@ -536,18 +536,21 @@ def check_for_new_entries_and_notify():
                         </div>
 
                         <!-- CTA 버튼 -->
-                        <div style="text-align: center; margin: 20px 0;">
+                        <div style="margin: 20px 0;">
                             <a href="{link}" style="
-                                display: inline-block;
+                                display: block;
+                                width: 100%;
                                 background-color: #0078ff;
                                 color: #ffffff;
                                 text-decoration: none;
-                                padding: 12px 24px;
+                                padding: 15px 24px;
                                 border-radius: 6px;
                                 font-weight: bold;
                                 font-size: 16px;
                                 border: none;
                                 cursor: pointer;
+                                text-align: center;
+                                box-sizing: border-box;
                                 transition: background-color 0.3s ease;
                             ">콘텐츠 확인하기</a>
                         </div>
