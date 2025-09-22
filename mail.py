@@ -153,7 +153,12 @@ def send_email(subject, html_content, to_email):
     smtp_server = 'smtp.naver.com'
     smtp_port = 465
     smtp_user = 'ytonemkt@naver.com'
-    smtp_password = os.environ.get('EMAIL_PASSWORD', '3WD5JRRCB5LH')  # 네이버 애플리케이션 비밀번호
+    # 강제로 애플리케이션 비밀번호 설정 (캐시 문제 해결)
+    smtp_password = '3WD5JRRCB5LH'  # 네이버 애플리케이션 비밀번호
+    
+    # 디버깅을 위한 로그 출력
+    log_message(f"SMTP 설정 - 서버: {smtp_server}, 포트: {smtp_port}, 사용자: {smtp_user}")
+    log_message(f"사용 중인 비밀번호: {smtp_password}")
 
     # 이메일 구성
     msg = MIMEMultipart('alternative')
