@@ -153,7 +153,7 @@ def send_email(subject, html_content, to_email):
     smtp_server = 'smtp.naver.com'
     smtp_port = 465
     smtp_user = 'ytonemkt@naver.com'
-    smtp_password = os.environ.get('EMAIL_PASSWORD', 'ytonecompany1!')
+    smtp_password = os.environ.get('EMAIL_PASSWORD', '3WD5JRRCB5LH')  # 네이버 애플리케이션 비밀번호
 
     # 이메일 구성
     msg = MIMEMultipart('alternative')
