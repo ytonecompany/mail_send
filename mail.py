@@ -154,7 +154,7 @@ def send_email(subject, html_content, to_email):
     smtp_port = 465
     smtp_user = 'ytonemkt@naver.com'
     # 강제로 애플리케이션 비밀번호 설정 (캐시 문제 해결)
-    smtp_password = '3WD5JRRCB5LH'  # 네이버 애플리케이션 비밀번호
+    smtp_password = 'ytone2025!@#'  # 네이버 애플리케이션 비밀번호
     
     # 디버깅을 위한 로그 출력
     log_message(f"SMTP 설정 - 서버: {smtp_server}, 포트: {smtp_port}, 사용자: {smtp_user}")
@@ -307,16 +307,15 @@ def save_current_data_to_sheet(data):
                     }
             
             # 시트 초기화 및 헤더 추가
-            previous_data_sheet.clear()
-            previous_data_sheet.append_row(["title", "sheet_name", "date_sent"])
-            
-            # 고유한 데이터만 시트에 추가
+            values = [["title", "sheet_name", "date_sent"]]
             for entry in unique_entries.values():
-                previous_data_sheet.append_row([
+                values.append([
                     entry.get("title", ""),
                     entry.get("sheet_name", ""),
                     entry.get("date_sent", "")
                 ])
+            
+            previous_data_sheet.update("A1", values, value_input_option="RAW")
             
             log_message(f"스프레드시트에 {len(unique_entries)} 개의 고유 데이터 저장 성공")
             
@@ -602,7 +601,7 @@ def check_for_new_entries_and_notify():
             """
             
             # 이메일 전송
-            success = send_email(subject, html_content, 'business@y-tone.co.kr, korea@y-tone.co.kr, design@y-tone.co.kr, production@y-tone.co.kr, th.yoon@y-tone.co.kr')
+            success = send_email(subject, html_content, 'business@y-tone.co.kr, korea@y-tone.co.kr, design@y-tone.co.kr, production@y-tone.co.kr, th.yoon@y-tone.co.kr, ikanv13@y-tone.co.kr')
             if success:
                 log_message(f"'{title}' 이메일 전송 성공")
             else:
